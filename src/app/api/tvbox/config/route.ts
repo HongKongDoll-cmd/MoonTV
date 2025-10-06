@@ -45,7 +45,7 @@ export async function GET(request: Request) {
     ]);
 
     // 将内部 SourceConfig 映射为 TVBox 兼容的 sites
-    // 常见字段：key/api/name/type/searchable/quickSearch/filter
+    // 常见字段：key/api/name/type/searchable/quickSearch
     const tvboxSites = sites.map((s) => ({
       key: s.key,
       api: s.api,
@@ -53,7 +53,6 @@ export async function GET(request: Request) {
       type: 1,
       searchable: 1,
       quickSearch: 1,
-      filter: 0,
       ext: s.detail || '',
     }));
 
@@ -64,9 +63,7 @@ export async function GET(request: Request) {
       api: `${origin}/api/tvbox/categories`,
       name: '豆瓣｜自定义',
       type: 1,
-      searchable: 1,
-      quickSearch: 1,
-      filter: 0,
+      searchable: 0,
       ext: '',
     };
 
