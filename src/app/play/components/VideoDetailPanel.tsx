@@ -6,6 +6,7 @@ import { Download, Heart } from 'lucide-react';
 import { useState, useSyncExternalStore } from 'react';
 
 import { applyImageFallback } from '@/lib/douban-image';
+import { formatEpisodeBadge, looksLikeFileTitle } from '@/lib/episode-label';
 import { SearchResult } from '@/lib/types';
 import { processImageUrl } from '@/lib/utils';
 
@@ -119,9 +120,16 @@ export function VideoDetailPanel(props: VideoDetailPanelProps) {
     shouldShowBackdrop(rawPoster, viewportWidth) &&
     Boolean(backdropStyle.backgroundImage);
 
-  const episodeLabel =
-    detail?.episodes_titles?.[currentEpisodeIndex] ||
-    `第 ${currentEpisodeIndex + 1} 集`;
+  // 标题旁的集数标签：只有「文件名式」标题（网盘文件名/相对路径）才折叠成
+  // E01 —— 长文件名会把标题挤爆；普通集名（第X集 / CMS 集名）原样显示，
+  // 没有标题退回「第 N 集」。折叠只针对文件名，「第X集」不折叠，与旧版一致。
+  const rawEpisodeTitle = detail?.episodes_titles?.[currentEpisodeIndex];
+  const trimmedEpisodeTitle = (rawEpisodeTitle || '').trim();
+  const episodeLabel = trimmedEpisodeTitle
+    ? looksLikeFileTitle(trimmedEpisodeTitle)
+      ? formatEpisodeBadge(currentEpisodeIndex + 1, totalEpisodes)
+      : rawEpisodeTitle as string
+    : `第 ${currentEpisodeIndex + 1} 集`;
 
   const canExpand = shouldClampDescription(detail?.desc);
   const clamped = canExpand && !expanded;
@@ -163,7 +171,14 @@ export function VideoDetailPanel(props: VideoDetailPanelProps) {
           <h1 className='text-xl font-bold tracking-wide break-words md:text-3xl'>
             {videoTitle || '影片标题'}
             {totalEpisodes > 1 && (
-              <span className='ml-2 align-middle text-base font-normal text-gray-500 dark:text-gray-400 md:text-xl'>
+              <span
+                className='ml-2 align-middle text-base font-normal text-gray-500 dark:text-gray-400 md:text-xl'
+                title={
+                  rawEpisodeTitle && episodeLabel !== rawEpisodeTitle
+                    ? rawEpisodeTitle
+                    : undefined
+                }
+              >
                 {episodeLabel}
               </span>
             )}

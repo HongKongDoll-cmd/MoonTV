@@ -20,6 +20,7 @@ import {
   saveEpisodeFilterConfig,
   sliceEpisodePage,
 } from '@/lib/episode-filter';
+import { resolveEpisodeButtonText } from '@/lib/episode-label';
 import { SearchResult } from '@/lib/types';
 import { getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
 
@@ -703,10 +704,21 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                 : currentPageEpisodes
               ).map((episodeNumber) => {
                 const isActive = episodeNumber === value;
+                const fullTitle = episodes_titles?.[episodeNumber - 1];
+                // 文件名式标题折叠成 E01/E02（网盘文件名太长会糊成一团），
+                // 完整名保留在悬停提示里；其它源的行为不变
+                const label = resolveEpisodeButtonText(
+                  fullTitle,
+                  episodeNumber,
+                  totalEpisodes
+                );
                 return (
                   <button
                     key={episodeNumber}
                     onClick={() => handleEpisodeClick(episodeNumber - 1)}
+                    title={
+                      fullTitle && label !== fullTitle ? fullTitle : undefined
+                    }
                     className={`h-9 px-1 py-1 flex items-center justify-center text-xs font-medium rounded transition-all duration-200 whitespace-nowrap font-mono
                       ${
                         isActive
@@ -714,18 +726,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                           : 'bg-gray-200 text-gray-700 hover:bg-gray-300 hover:scale-105 dark:bg-white/10 dark:text-gray-300 dark:hover:bg-white/20'
                       }`.trim()}
                   >
-                    {(() => {
-                      const title = episodes_titles?.[episodeNumber - 1];
-                      if (!title) {
-                        return episodeNumber;
-                      }
-                      // 如果匹配"第X集"格式，提取中间的数字
-                      const match = title.match(/第(\d+)集/);
-                      if (match) {
-                        return match[1];
-                      }
-                      return title;
-                    })()}
+                    {label}
                   </button>
                 );
               })}

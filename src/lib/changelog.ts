@@ -11,6 +11,19 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.5.1",
+    date: "2026-09-24",
+    added: [
+    "网盘长文件名选集自动折叠: 影库里的视频文件名动辄几十个字, 选集按钮里根本看不出是哪一集; 现在文件名式标题(带视频扩展名 / 相对路径 / S01E01 开头)在按钮上折叠成 E01/E02 短标签(位宽按总集数对齐, 「第005集.mkv」这类也统一折叠), 完整文件名移到悬停提示里; 播放页标题旁的集数标签同步折叠; 普通 CMS 源的「第X集」与集名显示不变"
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "4.5.0",
     date: "2026-09-24",
     added: [
