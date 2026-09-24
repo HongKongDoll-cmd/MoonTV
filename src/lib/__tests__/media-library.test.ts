@@ -4,9 +4,11 @@ import {
   isMediaLibraryUsable,
   MEDIA_LIBRARY_TYPE_LABELS,
   normalizeMediaLibraryConfig,
+  normalizeMediaLibraryIds,
   normalizeMediaLibraryType,
   resolveLibrarySourceKind,
   summarizeMediaLibrary,
+  toEmbyConfig,
   toOpenListConfig,
 } from '@/lib/media-library';
 
@@ -68,6 +70,7 @@ describe('影库配置归一', () => {
       RootPath: '/',
       AllowPrivateNetwork: false,
       UserId: '',
+      LibraryIds: [],
       AllowPersonalOverride: true,
     });
   });
@@ -246,5 +249,59 @@ describe('个人配置与站点级配置的优先级（4.3.12）', () => {
         allowPersonalOverride: false,
       })
     ).toBe('none');
+  });
+});
+
+describe('Emby 媒体库选择（4.4.6）', () => {
+  const embyBase = {
+    Enabled: true,
+    Type: 'emby' as const,
+    BaseUrl: 'https://emby.example.com',
+    Token: 'k',
+    RootPath: '/',
+    AllowPrivateNetwork: false,
+    AllowPersonalOverride: true,
+  };
+
+  it('配置里的媒体库 ID 去重去空', () => {
+    expect(normalizeMediaLibraryIds(['a', 'a', '', ' b '])).toEqual(['a', 'b']);
+  });
+
+  it('非数组一律当「全部库」', () => {
+    expect(normalizeMediaLibraryIds(null)).toEqual([]);
+    expect(normalizeMediaLibraryIds('a')).toEqual([]);
+  });
+
+  it('归一配置时带上媒体库 ID，缺失时为空数组', () => {
+    expect(
+      normalizeMediaLibraryConfig({ ...embyBase, LibraryIds: ['lib-1'] })
+        ?.LibraryIds
+    ).toEqual(['lib-1']);
+    expect(normalizeMediaLibraryConfig(embyBase)?.LibraryIds).toEqual([]);
+  });
+
+  it('脏的媒体库列表不会污染配置', () => {
+    expect(
+      normalizeMediaLibraryConfig({ ...embyBase, LibraryIds: [1, null, 'x'] })
+        ?.LibraryIds
+    ).toEqual(['x']);
+  });
+
+  it('转成 Emby 适配器配置时带上媒体库 ID', () => {
+    expect(
+      toEmbyConfig({
+        ...embyBase,
+        UserId: 'u1',
+        LibraryIds: ['lib-1', 'lib-2'],
+      })
+    ).toMatchObject({ userId: 'u1', libraryIds: ['lib-1', 'lib-2'] });
+  });
+
+  it('没配媒体库时空数组（= 全部库）', () => {
+    expect(toEmbyConfig(embyBase)?.libraryIds).toEqual([]);
+  });
+
+  it('类型不是 emby 时不产出 Emby 配置', () => {
+    expect(toEmbyConfig({ ...embyBase, Type: 'openlist' })).toBeNull();
   });
 });

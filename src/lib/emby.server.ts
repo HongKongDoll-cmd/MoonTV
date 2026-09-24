@@ -8,9 +8,14 @@
 import {
   type EmbyConfig,
   type EmbyItem,
+  type EmbyLibrary,
+  type EmbyUser,
   buildEmbySearchParams,
   mapEmbyDetailToResult,
   mapEmbyItemsToSearchResults,
+  mapEmbyLibraries,
+  mapEmbyUsers,
+  mergeEmbyItems,
 } from './emby';
 import type { SearchResult } from './types';
 import { validateMediaUrl } from './url-guard';
@@ -116,7 +121,56 @@ export async function pingEmby(
   };
 }
 
-/** 影库搜索：只收电影与剧集，映射成与在线源一致的 `SearchResult` */
+/**
+ * 列影库里的用户（管理台下拉用）。
+ *
+ * 家庭影库多账号很常见（父母一个、小孩一个，权限不同），
+ * 管理员得能挑一个来搜，而不是只知道「取第一个用户」。
+ */
+export async function listEmbyUsers(
+  config: EmbyConfig
+): Promise<{ ok: boolean; users: EmbyUser[]; error?: string; status?: number }> {
+  const res = await requestEmbyJson<unknown[]>(config, '/Users');
+  if (!res.ok) return { ok: false, users: [], error: res.error, status: res.status };
+  return { ok: true, users: mapEmbyUsers(res.data) };
+}
+
+/**
+ * 列影库里的媒体库（管理台多选用）。
+ *
+ * 顺带把实际使用的 userId 回给调用方：管理员没填时这里已经解析过了，
+ * 界面上要显示「按哪个用户在看」。
+ */
+export async function listEmbyLibraries(
+  config: EmbyConfig
+): Promise<{
+  ok: boolean;
+  libraries: EmbyLibrary[];
+  userId?: string;
+  error?: string;
+  status?: number;
+}> {
+  const userId = await getEmbyUserId(config);
+  if (!userId) {
+    return { ok: false, libraries: [], error: '取不到影库用户', status: 502 };
+  }
+  const res = await requestEmbyJson<unknown>(
+    config,
+    `/Users/${encodeURIComponent(userId)}/Views`
+  );
+  if (!res.ok) {
+    return { ok: false, libraries: [], error: res.error, status: res.status };
+  }
+  return { ok: true, libraries: mapEmbyLibraries(res.data), userId };
+}
+
+/**
+ * 影库搜索：只收电影与剧集，映射成与在线源一致的 `SearchResult`。
+ *
+ * 配了媒体库时**逐库并发**再合并：Emby 的 `ParentId` 只接受单值，
+ * 没有「一次搜多个库」的参数。单个库失败不算整体失败（别的库还能出结果），
+ * 只有全挂了才报错。
+ */
 export async function searchEmbyItems(
   config: EmbyConfig,
   query: string
@@ -124,13 +178,43 @@ export async function searchEmbyItems(
   const userId = await getEmbyUserId(config);
   if (!userId) return { results: [], error: '取不到影库用户' };
 
-  const res = await requestEmbyJson<{ Items?: EmbyItem[]; TotalRecordCount?: number }>(
-    config,
-    `/Users/${encodeURIComponent(userId)}/Items`,
-    buildEmbySearchParams(query, SEARCH_LIMIT)
+  const path = `/Users/${encodeURIComponent(userId)}/Items`;
+  const libraryIds = config.libraryIds ?? [];
+
+  if (libraryIds.length === 0) {
+    const res = await requestEmbyJson<{ Items?: EmbyItem[]; TotalRecordCount?: number }>(
+      config,
+      path,
+      buildEmbySearchParams(query, SEARCH_LIMIT)
+    );
+    if (!res.ok) return { results: [], error: res.error };
+    return { results: mapEmbyItemsToSearchResults(res.data?.Items) };
+  }
+
+  const settled = await Promise.all(
+    libraryIds.map((libraryId) =>
+      requestEmbyJson<{ Items?: EmbyItem[] }>(
+        config,
+        path,
+        buildEmbySearchParams(query, SEARCH_LIMIT, libraryId)
+      )
+    )
   );
-  if (!res.ok) return { results: [], error: res.error };
-  return { results: mapEmbyItemsToSearchResults(res.data?.Items) };
+
+  const batches: unknown[] = [];
+  let lastError: string | undefined;
+  for (const res of settled) {
+    if (res.ok) batches.push(res.data?.Items ?? []);
+    else lastError = res.error ?? lastError;
+  }
+  // 全挂了才报错；部分库可用就照常出结果
+  if (batches.length === 0) {
+    return { results: [], error: lastError ?? '搜索影库失败' };
+  }
+
+  return {
+    results: mapEmbyItemsToSearchResults(mergeEmbyItems(batches, SEARCH_LIMIT)),
+  };
 }
 
 /** 影库详情：电影 → 单集；剧集 → 展开全部 Episode（自然序由 Emby 保证） */

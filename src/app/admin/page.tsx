@@ -30,6 +30,7 @@ import {
   ExternalLink,
   FileText,
   FolderOpen,
+  RefreshCw,
   Settings,
   Trash2,
   Users,
@@ -41,6 +42,7 @@ import Swal from 'sweetalert2';
 
 import { AdminConfig, AdminConfigResult } from '@/lib/admin.types';
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
+import { type EmbyLibrary, type EmbyUser, resolveEmbyLibraryIds } from '@/lib/emby';
 import {
   type MediaLibraryConfig,
   createEmptyMediaLibraryConfig,
@@ -2452,6 +2454,93 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
     }));
   };
 
+  /** Emby 的用户 / 媒体库下拉数据（4.4.6：不用手填用户 ID，也不用盲搜全库） */
+  const [embyUsers, setEmbyUsers] = useState<EmbyUser[]>([]);
+  const [embyLibraries, setEmbyLibraries] = useState<EmbyLibrary[]>([]);
+  const [loadingEmbyOptions, setLoadingEmbyOptions] = useState(false);
+
+  /**
+   * 拉 Emby 的用户与媒体库列表。
+   *
+   * 用表单里**当前填的**地址与令牌（还没保存也要能拉），
+   * 所以走 /api/emby 的表单参数分支而不是站点级配置。
+   */
+  const handleLoadEmbyOptions = async () => {
+    if (!mediaLibrary.BaseUrl.trim()) {
+      showError('请先填写影库地址');
+      return;
+    }
+    setLoadingEmbyOptions(true);
+    try {
+      const body = JSON.stringify({
+        baseUrl: mediaLibrary.BaseUrl,
+        token: mediaLibrary.Token,
+        userId: mediaLibrary.UserId || '',
+        allowPrivateNetwork: mediaLibrary.AllowPrivateNetwork === true,
+      });
+
+      const [usersResp, libsResp] = await Promise.all([
+        fetch('/api/emby', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...JSON.parse(body), action: 'users' }),
+        }),
+        fetch('/api/emby', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...JSON.parse(body), action: 'libraries' }),
+        }),
+      ]);
+
+      const usersData = await usersResp.json().catch(() => ({}));
+      const libsData = await libsResp.json().catch(() => ({}));
+
+      if (!usersResp.ok) {
+        throw new Error(usersData?.error || `读取用户列表失败: ${usersResp.status}`);
+      }
+      if (!libsResp.ok) {
+        throw new Error(libsData?.error || `读取媒体库失败: ${libsResp.status}`);
+      }
+
+      const users: EmbyUser[] = Array.isArray(usersData?.users)
+        ? usersData.users
+        : [];
+      const libraries: EmbyLibrary[] = Array.isArray(libsData?.libraries)
+        ? libsData.libraries
+        : [];
+
+      setEmbyUsers(users);
+      setEmbyLibraries(libraries);
+
+      // 已存的 ID 可能在这份影库里已经不存在了，顺手剔掉，避免搜出空结果
+      const validIds = resolveEmbyLibraryIds(mediaLibrary.LibraryIds, libraries);
+      if (validIds.join(',') !== (mediaLibrary.LibraryIds ?? []).join(',')) {
+        updateMediaLibrary({ LibraryIds: validIds });
+      }
+      // 没指定用户时，用影库认可的那个（服务端解析出来的）
+      if (!mediaLibrary.UserId && libsData?.userId) {
+        updateMediaLibrary({ UserId: String(libsData.userId) });
+      }
+
+      showSuccess(
+        `已读取 ${users.length} 个用户、${libraries.length} 个媒体库，可在下面选择`
+      );
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '读取影库信息失败');
+    } finally {
+      setLoadingEmbyOptions(false);
+    }
+  };
+
+  /** 勾选/取消一个媒体库：全不勾 = 搜索全部库 */
+  const toggleEmbyLibrary = (libraryId: string) => {
+    const current = mediaLibrary.LibraryIds ?? [];
+    const next = current.includes(libraryId)
+      ? current.filter((id) => id !== libraryId)
+      : [...current, libraryId];
+    updateMediaLibrary({ LibraryIds: next });
+  };
+
   /**
    * 清空站点级影库配置。
    *
@@ -3313,21 +3402,88 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
             />
           </div>
           {mediaLibrary.Type === 'emby' && (
-            <div>
+            <div className='md:col-span-2 space-y-2 rounded-lg border border-gray-200 dark:border-gray-700 p-3'>
+              <div className='flex items-center justify-between gap-2'>
+                <span className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                  Emby 用户与媒体库
+                </span>
+                <button
+                  type='button'
+                  onClick={handleLoadEmbyOptions}
+                  disabled={isLocalStorage || loadingEmbyOptions}
+                  className='flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50'
+                >
+                  <RefreshCw
+                    className={`w-3.5 h-3.5 ${loadingEmbyOptions ? 'animate-spin' : ''}`}
+                  />
+                  {loadingEmbyOptions ? '读取中…' : '从影库读取'}
+                </button>
+              </div>
+
               <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
-                Emby 用户 ID（留空自动取第一个用户）
+                Emby 用户
               </label>
-              <input
-                type='text'
-                value={mediaLibrary.UserId || ''}
-                onChange={(e) =>
-                  !isLocalStorage &&
-                  updateMediaLibrary({ UserId: e.target.value })
-                }
-                disabled={isLocalStorage}
-                placeholder='自动获取'
-                className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent'
-              />
+              {embyUsers.length > 0 ? (
+                <select
+                  value={mediaLibrary.UserId || ''}
+                  onChange={(e) =>
+                    !isLocalStorage && updateMediaLibrary({ UserId: e.target.value })
+                  }
+                  disabled={isLocalStorage}
+                  className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent'
+                >
+                  <option value=''>自动（影库第一个用户）</option>
+                  {embyUsers.map((user) => (
+                    <option key={user.Id} value={user.Id}>
+                      {user.Name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type='text'
+                  value={mediaLibrary.UserId || ''}
+                  onChange={(e) =>
+                    !isLocalStorage &&
+                    updateMediaLibrary({ UserId: e.target.value })
+                  }
+                  disabled={isLocalStorage}
+                  placeholder='留空自动取第一个用户，点「从影库读取」可下拉选择'
+                  className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent'
+                />
+              )}
+
+              {embyLibraries.length > 0 && (
+                <div>
+                  <p className='text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+                    参与搜索的媒体库（一个都不勾 = 全部库）
+                  </p>
+                  <div className='flex flex-wrap gap-2'>
+                    {embyLibraries.map((library) => {
+                      const checked = (mediaLibrary.LibraryIds ?? []).includes(
+                        library.Id
+                      );
+                      return (
+                        <label
+                          key={library.Id}
+                          className='flex items-center gap-2 px-2 py-1 text-sm rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300'
+                        >
+                          <input
+                            type='checkbox'
+                            checked={checked}
+                            onChange={() =>
+                              !isLocalStorage && toggleEmbyLibrary(library.Id)
+                            }
+                            disabled={isLocalStorage}
+                            className='w-4 h-4'
+                          />
+                          {library.Name}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
           <div className='flex items-end'>

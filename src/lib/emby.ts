@@ -37,6 +37,45 @@ export interface EmbyConfig {
   userId?: string;
   /** 自建部署访问局域网影库时显式开启 */
   allowPrivateNetwork?: boolean;
+  /**
+   * 参与搜索的媒体库 ID（`/Users/{uid}/Views` 里的库）。
+   * 空数组 / 不传 = 全部库。
+   */
+  libraryIds?: string[];
+}
+
+/** Emby 用户（`/Users` 的元素） */
+export interface EmbyUser {
+  Id: string;
+  Name: string;
+}
+
+/** Emby 媒体库（`/Users/{uid}/Views` 的 Items 元素） */
+export interface EmbyLibrary {
+  Id: string;
+  Name: string;
+  /** movies / tvshows / music / homevideos / boxsets … */
+  CollectionType?: string;
+}
+
+/** `/Users` 原始条目（只取判断需要的字段） */
+interface EmbyUserRaw {
+  Id?: string;
+  Name?: string;
+  Configuration?: { IsHidden?: boolean };
+  Policy?: { IsDisabled?: boolean };
+}
+
+/** `/Users/{uid}/Views` 原始条目 */
+interface EmbyLibraryRaw {
+  Id?: string;
+  Name?: string;
+  CollectionType?: string;
+}
+
+/** `/Users/{uid}/Views` 的响应外壳 */
+interface EmbyViewsResponse {
+  Items?: unknown[];
 }
 
 /** Emby 的媒体条目（`/Users/{uid}/Items` 的元素，只取用到的字段） */
@@ -199,13 +238,127 @@ export function mapEmbyDetailToResult(
   };
 }
 
-/** 搜索请求的查询参数（服务端补 `api_key` 与 `userId`） */
-export function buildEmbySearchParams(query: string, limit = 24): Record<string, string> {
-  return {
+/**
+ * 搜索请求的查询参数（服务端补 `api_key` 与 `userId`）。
+ *
+ * `parentId` 是媒体库（View）ID：分库搜索时由调用方逐个库传入，
+ * 因为 Emby 的 `ParentId` 只接受单值，多个库只能多次请求再合并。
+ */
+export function buildEmbySearchParams(
+  query: string,
+  limit = 24,
+  parentId?: string
+): Record<string, string> {
+  const params: Record<string, string> = {
     searchTerm: query,
     IncludeItemTypes: 'Movie,Series',
     Recursive: 'true',
     Limit: String(limit),
     Fields: 'ProductionYear,Overview',
   };
+  if (parentId) params.ParentId = parentId;
+  return params;
+}
+
+/**
+ * `/Users` 响应 → 用户列表。
+ *
+ * Emby 会把「已禁用」和「隐藏」的用户也列出来，这些不该出现在下拉里；
+ * 没有名字的用户（部分 Jellyfin 版本）退回 Id，避免下拉出现空行。
+ */
+export function mapEmbyUsers(raw: unknown): EmbyUser[] {
+  const list = Array.isArray(raw) ? raw : [];
+  const users: EmbyUser[] = [];
+  for (const entry of list) {
+    if (!entry || typeof entry !== 'object') continue;
+    const user = entry as EmbyUserRaw;
+    if (!user.Id) continue;
+    // 隐藏 / 禁用用户不参与选择
+    if (user.Configuration?.IsHidden === true) continue;
+    if (user.Policy?.IsDisabled === true) continue;
+    users.push({ Id: String(user.Id), Name: user.Name ? String(user.Name) : String(user.Id) });
+  }
+  return users;
+}
+
+/**
+ * `/Users/{uid}/Views` 响应 → 媒体库列表。
+ *
+ * Views 里会混进「收藏」「合集」这类非真实媒体库的条目（没有 CollectionType），
+ * 保留但标记出来：管理员想只搜电影库时靠名字也认得出。
+ */
+export function mapEmbyLibraries(raw: unknown): EmbyLibrary[] {
+  let source: unknown[] = [];
+  if (Array.isArray(raw)) {
+    source = raw;
+  } else if (raw && typeof raw === 'object') {
+    const items = (raw as EmbyViewsResponse).Items;
+    if (Array.isArray(items)) source = items;
+  }
+  const libraries: EmbyLibrary[] = [];
+  for (const entry of source) {
+    if (!entry || typeof entry !== 'object') continue;
+    const view = entry as EmbyLibraryRaw;
+    if (!view.Id || !view.Name) continue;
+    libraries.push({
+      Id: String(view.Id),
+      Name: String(view.Name),
+      CollectionType: view.CollectionType ? String(view.CollectionType) : undefined,
+    });
+  }
+  return libraries;
+}
+
+/**
+ * 校验已选的媒体库 ID：只保留影库里仍然存在的那些。
+ *
+ * 影库侧改名 / 删库之后，配置里残留的旧 ID 会让搜索变成空结果，
+ * 而且管理员在界面上根本看不出原因——这里直接丢弃。
+ *
+ * ⚠️ 返回空数组 = 「全部库」，与「一个都没勾」是同一个表示，
+ * 调用方不要把它当成「搜索范围为空」。
+ */
+export function resolveEmbyLibraryIds(
+  selected: unknown,
+  libraries: EmbyLibrary[]
+): string[] {
+  if (!Array.isArray(selected)) return [];
+  const known = new Set(libraries.map((library) => library.Id));
+  if (known.size === 0) return [];
+  const ids: string[] = [];
+  for (const value of selected) {
+    if (typeof value !== 'string' || !value) continue;
+    if (!known.has(value)) continue;
+    if (ids.includes(value)) continue;
+    ids.push(value);
+  }
+  return ids;
+}
+
+/**
+ * 合并分库搜索的结果：按 Id 去重、截断到 limit。
+ *
+ * 一个片子可能同时挂在多个库里（比如「电影」和「4K 电影」），
+ * 去重必须在合并之后做，否则搜索结果会出现重复卡片。
+ */
+export function mergeEmbyItems(
+  batches: Array<unknown>,
+  limit = 24
+): EmbyItem[] {
+  const merged: EmbyItem[] = [];
+  const seen = new Set<string>();
+  for (const batch of batches) {
+    const items = Array.isArray(batch) ? (batch as EmbyItem[]) : [];
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue;
+      const id = item.Id ? String(item.Id) : '';
+      // 没有 Id 的条目无法去重也无法播放，直接丢
+      if (!id) continue;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      merged.push(item);
+      if (limit > 0 && merged.length >= limit) return merged;
+    }
+  }
+  return merged;
 }

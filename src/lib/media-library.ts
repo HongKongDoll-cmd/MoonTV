@@ -65,6 +65,11 @@ export interface MediaLibraryConfig {
   /** Emby 用户 ID（Emby 的部分接口需要，留空则由服务端取第一个用户） */
   UserId?: string;
   /**
+   * Emby 参与搜索的媒体库 ID（`/Users/{uid}/Views` 里的库）。
+   * 空数组 = 全部库；填了就只搜这些库（家里有小孩库 / 4K 库时常用）。
+   */
+  LibraryIds?: string[];
+  /**
    * 是否允许浏览器里的个人影库配置覆盖这份站点级配置（默认允许）。
    *
    * 关掉之后：全站强制只用站点级影库，个人在「影库」页填的地址一律不生效。
@@ -140,9 +145,28 @@ export function normalizeMediaLibraryConfig(
     RootPath: rootPath,
     AllowPrivateNetwork: input.AllowPrivateNetwork === true,
     UserId: typeof input.UserId === 'string' ? input.UserId : '',
+    LibraryIds: normalizeMediaLibraryIds(input.LibraryIds),
     // 缺省 = 允许覆盖（老配置没有这个字段，行为必须与升级前一致）
     AllowPersonalOverride: input.AllowPersonalOverride !== false,
   };
+}
+
+/**
+ * 归一媒体库 ID 列表：只留非空字符串并去重，非数组一律当「全部库」。
+ *
+ * 这里**不校验** ID 是否真的存在于影库——那需要网络请求，
+ * 校验放在管理台保存前（拿到库列表之后）做。
+ */
+export function normalizeMediaLibraryIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const ids: string[] = [];
+  for (const value of raw) {
+    if (typeof value !== 'string' || !value.trim()) continue;
+    const id = value.trim();
+    if (ids.includes(id)) continue;
+    ids.push(id);
+  }
+  return ids;
 }
 
 /** 这份配置是否真的能用（启用 + 有地址） */
@@ -181,6 +205,7 @@ export function toEmbyConfig(
     baseUrl: config.BaseUrl,
     token: config.Token,
     userId: config.UserId || '',
+    libraryIds: config.LibraryIds ?? [],
     allowPrivateNetwork: config.AllowPrivateNetwork === true,
   };
 }

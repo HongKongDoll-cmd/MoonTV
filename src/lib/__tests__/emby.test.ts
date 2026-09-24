@@ -8,6 +8,10 @@ import {
   isEmbySeries,
   mapEmbyDetailToResult,
   mapEmbyItemsToSearchResults,
+  mapEmbyLibraries,
+  mapEmbyUsers,
+  mergeEmbyItems,
+  resolveEmbyLibraryIds,
 } from '@/lib/emby';
 
 const movie = {
@@ -162,5 +166,131 @@ describe('Emby 搜索参数', () => {
       Fields: 'ProductionYear,Overview',
     });
     expect(params.Limit).toBe('24');
+  });
+});
+
+describe('Emby 用户列表映射', () => {
+  it('保留正常用户', () => {
+    expect(
+      mapEmbyUsers([
+        { Id: 'u1', Name: 'homeuser' },
+        { Id: 'u2', Name: 'kid' },
+      ])
+    ).toEqual([
+      { Id: 'u1', Name: 'homeuser' },
+      { Id: 'u2', Name: 'kid' },
+    ]);
+  });
+
+  it('跳过隐藏 / 禁用用户', () => {
+    expect(
+      mapEmbyUsers([
+        { Id: 'u1', Name: 'a', Configuration: { IsHidden: true } },
+        { Id: 'u2', Name: 'b', Policy: { IsDisabled: true } },
+        { Id: 'u3', Name: 'c' },
+      ])
+    ).toEqual([{ Id: 'u3', Name: 'c' }]);
+  });
+
+  it('没有名字的用户退回 Id，不至于在下拉里出现空行', () => {
+    expect(mapEmbyUsers([{ Id: 'u9' }])).toEqual([{ Id: 'u9', Name: 'u9' }]);
+  });
+
+  it('非数组与脏数据返回空列表', () => {
+    expect(mapEmbyUsers(null)).toEqual([]);
+    expect(mapEmbyUsers([null, 1, 'x', {}])).toEqual([]);
+  });
+});
+
+describe('Emby 媒体库映射', () => {
+  it('从 Views 响应外壳里取 Items', () => {
+    expect(
+      mapEmbyLibraries({
+        Items: [
+          { Id: 'lib-1', Name: '电影', CollectionType: 'movies' },
+          { Id: 'lib-2', Name: '剧集', CollectionType: 'tvshows' },
+        ],
+      })
+    ).toEqual([
+      { Id: 'lib-1', Name: '电影', CollectionType: 'movies' },
+      { Id: 'lib-2', Name: '剧集', CollectionType: 'tvshows' },
+    ]);
+  });
+
+  it('也接受裸数组（部分 Jellyfin 版本直接返回数组）', () => {
+    expect(mapEmbyLibraries([{ Id: 'l1', Name: '音乐' }])).toEqual([
+      { Id: 'l1', Name: '音乐', CollectionType: undefined },
+    ]);
+  });
+
+  it('缺 Id 或 Name 的视图丢弃', () => {
+    expect(
+      mapEmbyLibraries({ Items: [{ Name: '没 ID' }, { Id: 'x' }, null] })
+    ).toEqual([]);
+  });
+
+  it('非对象与空响应返回空列表', () => {
+    expect(mapEmbyLibraries(null)).toEqual([]);
+    expect(mapEmbyLibraries({})).toEqual([]);
+    expect(mapEmbyLibraries('x')).toEqual([]);
+  });
+});
+
+describe('Emby 已选媒体库校验', () => {
+  const libraries = [
+    { Id: 'lib-1', Name: '电影' },
+    { Id: 'lib-2', Name: '剧集' },
+  ];
+
+  it('只保留影库里还存在的 ID', () => {
+    expect(resolveEmbyLibraryIds(['lib-1', 'lib-gone'], libraries)).toEqual([
+      'lib-1',
+    ]);
+  });
+
+  it('去重', () => {
+    expect(resolveEmbyLibraryIds(['lib-1', 'lib-1'], libraries)).toEqual([
+      'lib-1',
+    ]);
+  });
+
+  it('全都不存在时返回空数组（= 全部库，不是搜不到）', () => {
+    expect(resolveEmbyLibraryIds(['nope'], libraries)).toEqual([]);
+  });
+
+  it('库列表为空时不瞎校验（还没拉取就别把配置清掉）', () => {
+    expect(resolveEmbyLibraryIds(['lib-1'], [])).toEqual([]);
+  });
+
+  it('非数组一律当「全部库」', () => {
+    expect(resolveEmbyLibraryIds(null, libraries)).toEqual([]);
+    expect(resolveEmbyLibraryIds('lib-1', libraries)).toEqual([]);
+  });
+});
+
+describe('Emby 分库搜索结果合并', () => {
+  const a = { Id: 'm1', Name: 'A' };
+  const b = { Id: 'm2', Name: 'B' };
+
+  it('同一部片子挂在多个库时只出现一次', () => {
+    expect(mergeEmbyItems([[a, b], [a]])).toEqual([a, b]);
+  });
+
+  it('截断到 limit', () => {
+    const many = [
+      { Id: 'x1' },
+      { Id: 'x2' },
+      { Id: 'x3' },
+    ];
+    expect(mergeEmbyItems([many], 2)).toHaveLength(2);
+  });
+
+  it('没有 Id 的条目丢掉（无法去重也无法播放）', () => {
+    expect(mergeEmbyItems([[{ Name: '无 ID' }, a]])).toEqual([a]);
+  });
+
+  it('空批次返回空数组', () => {
+    expect(mergeEmbyItems([], 10)).toEqual([]);
+    expect(mergeEmbyItems([null, 'x'], 10)).toEqual([]);
   });
 });

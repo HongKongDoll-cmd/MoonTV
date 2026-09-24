@@ -2,7 +2,12 @@
 
 import { NextResponse } from 'next/server';
 
-import { pingEmby, searchEmbyItems } from '@/lib/emby.server';
+import {
+  listEmbyLibraries,
+  listEmbyUsers,
+  pingEmby,
+  searchEmbyItems,
+} from '@/lib/emby.server';
 import { type EmbyConfig,toEmbyConfig } from '@/lib/media-library';
 import { getServerMediaLibraryConfig } from '@/lib/media-library.server';
 
@@ -12,10 +17,13 @@ export const runtime = 'edge';
  * Emby / Jellyfin 影库转发（同源、无 CORS、api_key 不进浏览器侧 JS）。
  *
  * `action`:
- *   - `ping`   连通性测试（管理台测试按钮）。请求体可带 baseUrl/token/
- *              allowPrivateNetwork/userId —— 管理员**保存之前**就要能测试，
- *              所以表单参数优先，没带才回退站点级配置。
- *   - `search` 影库搜索（query 参数）。
+ *   - `ping`      连通性测试（管理台测试按钮）。
+ *   - `users`     列影库用户（管理台下拉，4.4.6 起不用手填用户 ID）。
+ *   - `libraries` 列媒体库（管理台多选，限定搜索范围）。
+ *   - `search`    影库搜索（query 参数，可选 libraryIds 限定库）。
+ *
+ * ⚠️ 请求体可带 baseUrl/token/allowPrivateNetwork/userId/libraryIds —— 管理员
+ * **保存之前**就要能试，所以表单参数优先，没带才回退站点级配置。
  */
 export async function POST(request: Request) {
   const payload = (await request.json().catch(() => ({}))) as {
@@ -24,6 +32,7 @@ export async function POST(request: Request) {
     token?: string;
     userId?: string;
     allowPrivateNetwork?: boolean;
+    libraryIds?: unknown;
     query?: string;
   };
 
@@ -34,6 +43,9 @@ export async function POST(request: Request) {
       baseUrl: payload.baseUrl,
       token: typeof payload.token === 'string' ? payload.token : '',
       userId: typeof payload.userId === 'string' ? payload.userId : '',
+      libraryIds: Array.isArray(payload.libraryIds)
+        ? payload.libraryIds.filter((id): id is string => typeof id === 'string')
+        : [],
       allowPrivateNetwork: payload.allowPrivateNetwork === true,
     };
   } else {
@@ -51,6 +63,17 @@ export async function POST(request: Request) {
   if (payload.action === 'ping') {
     const result = await pingEmby(config);
     return NextResponse.json(result, { status: result.ok ? 200 : 502 });
+  }
+
+  // 用户与媒体库的下拉：保存之前就要能拉，所以走的是表单参数那份 config
+  if (payload.action === 'users') {
+    const result = await listEmbyUsers(config);
+    return NextResponse.json(result, { status: result.ok ? 200 : result.status ?? 502 });
+  }
+
+  if (payload.action === 'libraries') {
+    const result = await listEmbyLibraries(config);
+    return NextResponse.json(result, { status: result.ok ? 200 : result.status ?? 502 });
   }
 
   if (payload.action === 'search') {
