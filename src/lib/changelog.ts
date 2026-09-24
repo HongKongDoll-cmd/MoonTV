@@ -11,6 +11,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.4.9",
+    date: "2026-09-24",
+    added: [
+    "影库列表排序: 工具栏新增「名称 / 大小 / 时间」三选一加升降序切换, 选择记在本浏览器里, 刷新后保持",
+    "排序保留两条文件管理器的规矩: 目录永远排在文件前面(升降序只翻转各组内部), 影库没给修改时间的条目恒排最后(不会伪装成 1970 年的老片)"
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "4.4.8",
     date: "2026-09-24",
     added: [

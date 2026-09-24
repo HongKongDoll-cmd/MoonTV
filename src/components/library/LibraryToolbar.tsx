@@ -2,7 +2,9 @@
 
 import type { LucideIcon } from 'lucide-react';
 import {
+  ArrowDown,
   ArrowLeft,
+  ArrowUp,
   Grid2x2,
   Grid3x3,
   LayoutGrid,
@@ -10,14 +12,20 @@ import {
   RefreshCw,
 } from 'lucide-react';
 
+import type { LibrarySort } from '@/lib/library-sort';
+import {
+  LIBRARY_SORT_FIELD_LABELS,
+  LIBRARY_SORT_FIELDS,
+} from '@/lib/library-sort';
 import type { LibraryView } from '@/lib/library-view';
 import { LIBRARY_VIEWS } from '@/lib/library-view';
 
 /**
- * 影库右侧内容区的顶部工具栏：面包屑 + 查看方式 + 刷新。
+ * 影库右侧内容区的顶部工具栏：面包屑 + 查看方式 + 排序 + 刷新。
  *
  * 「查看方式」照 Windows 资源管理器「右键 → 查看」的四档：
- * 列表 / 小图标 / 中等图标 / 大图标。选择存 localStorage，刷新后保持。
+ * 列表 / 小图标 / 中等图标 / 大图标。排序则是「名称 / 大小 / 时间」三选一
+ * 外加升降序切换。两者的选择都存 localStorage，刷新后保持。
  */
 export interface LibraryToolbarProps {
   segments: string[];
@@ -27,6 +35,8 @@ export interface LibraryToolbarProps {
   onSegment: (index: number) => void;
   view: LibraryView;
   onViewChange: (view: LibraryView) => void;
+  sort: LibrarySort;
+  onSortChange: (sort: LibrarySort) => void;
   onRefresh: () => void;
   /** 当前目录条目数，显示在右侧 */
   count: number;
@@ -47,6 +57,8 @@ const LibraryToolbar = ({
   onSegment,
   view,
   onViewChange,
+  sort,
+  onSortChange,
   onRefresh,
   count,
 }: LibraryToolbarProps) => (
@@ -86,6 +98,49 @@ const LibraryToolbar = ({
       <span className='mr-1 text-xs text-gray-400 dark:text-gray-500'>
         {count} 项
       </span>
+      {/* 排序：字段三选一 + 方向切换，两者都记进 localStorage */}
+      <div
+        className='flex items-center gap-0.5 rounded-lg border border-gray-200/70 p-0.5 dark:border-gray-700/60'
+        data-testid='library-sort'
+      >
+        {LIBRARY_SORT_FIELDS.map((field) => {
+          const active = sort.field === field;
+          return (
+            <button
+              key={field}
+              type='button'
+              onClick={() => onSortChange({ field, order: sort.order })}
+              aria-pressed={active}
+              className={`rounded-md px-2 py-1 text-xs transition-colors ${
+                active
+                  ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                  : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-200'
+              }`}
+            >
+              {LIBRARY_SORT_FIELD_LABELS[field]}
+            </button>
+          );
+        })}
+      </div>
+      <button
+        type='button'
+        onClick={() =>
+          onSortChange({
+            field: sort.field,
+            order: sort.order === 'asc' ? 'desc' : 'asc',
+          })
+        }
+        aria-label={sort.order === 'asc' ? '切换为降序' : '切换为升序'}
+        title={sort.order === 'asc' ? '升序，点击切换为降序' : '降序，点击切换为升序'}
+        className='flex items-center gap-1 rounded-lg border border-gray-200/70 px-2 py-1.5 text-xs transition-colors hover:bg-gray-100 dark:border-gray-700/60 dark:hover:bg-gray-800'
+      >
+        {sort.order === 'asc' ? (
+          <ArrowUp className='h-3.5 w-3.5' />
+        ) : (
+          <ArrowDown className='h-3.5 w-3.5' />
+        )}
+        {sort.order === 'asc' ? '升序' : '降序'}
+      </button>
       <div className='flex items-center gap-0.5 rounded-lg border border-gray-200/70 p-0.5 dark:border-gray-700/60'>
         {LIBRARY_VIEWS.map((candidate) => {
           const Icon = VIEW_META[candidate].icon;

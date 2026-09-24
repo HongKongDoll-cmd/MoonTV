@@ -210,7 +210,10 @@ const LibraryItems = ({
   if (view === 'list') {
     return (
       <>
-      <ul className='divide-y divide-gray-200/70 rounded-xl border border-gray-200/70 dark:divide-gray-700/60 dark:border-gray-700/60'>
+      <ul
+        data-testid='library-items'
+        className='divide-y divide-gray-200/70 rounded-xl border border-gray-200/70 dark:divide-gray-700/60 dark:border-gray-700/60'
+      >
         {shown.map((item) => {
           const video = !item.is_dir && isVideoFile(item.name);
           const active = selected === item.name;
@@ -280,7 +283,7 @@ const LibraryItems = ({
   const size = GRID_SIZE[view];
   return (
     <>
-    <div className='flex flex-wrap gap-2'>
+    <div data-testid='library-items' className='flex flex-wrap gap-2'>
       {shown.map((item) => {
         const active = selected === item.name;
         return (

@@ -21,6 +21,12 @@ import {
   pickCoverFromItems,
 } from '@/lib/library-image';
 import {
+  type LibrarySort,
+  readLibrarySort,
+  sortLibraryItems,
+  writeLibrarySort,
+} from '@/lib/library-sort';
+import {
   type LibraryView,
   readLibraryView,
   writeLibraryView,
@@ -108,6 +114,11 @@ const OpenListBrowser = () => {
   const [searching, setSearching] = useState(false);
   /** 查看方式（列表 / 小中大图标），存 localStorage */
   const [view, setView] = useState<LibraryView>('list');
+  /** 排序方式（名称 / 大小 / 时间 + 升降序），存 localStorage */
+  const [sort, setSort] = useState<LibrarySort>({
+    field: 'name',
+    order: 'asc',
+  });
   /** 单击选中的条目名（只高亮，不跳转） */
   const [selected, setSelected] = useState<string | null>(null);
   /** 连接设置弹窗：入口是顶栏「设置」或侧边栏「影库设置」（?settings=1） */
@@ -143,8 +154,9 @@ const OpenListBrowser = () => {
       const allowOverride = summary?.AllowPersonalOverride !== false;
       const saved = allowOverride ? readOpenListConfigFromCookie() : null;
 
-      // 查看方式是纯本地偏好，与服务端的影库策略无关，先读回来渲染
+      // 查看方式与排序都是纯本地偏好，与服务端的影库策略无关，先读回来渲染
       setView(readLibraryView());
+      setSort(readLibrarySort());
 
       if (saved?.baseUrl) {
         setConfig(saved);
@@ -430,11 +442,16 @@ const OpenListBrowser = () => {
     () => rootItems.filter((item) => item.is_dir),
     [rootItems]
   );
-  /** 根目录时目录已进「网盘列表」区块，普通列表只放文件，避免同一批条目出现两遍 */
-  const listItems = useMemo(
-    () => (isAtRoot ? items.filter((item) => !item.is_dir) : items),
-    [items, isAtRoot]
-  );
+  /**
+   * 根目录时目录已进「网盘列表」区块，普通列表只放文件，避免同一批条目出现两遍。
+   *
+   * 排序在**过滤之后**做：目录已经被移出列表的情况下再按大小/时间排一次，
+   * 省得一半条目按规则排、一半按名称排。
+   */
+  const listItems = useMemo(() => {
+    const base = isAtRoot ? items.filter((item) => !item.is_dir) : items;
+    return sortLibraryItems(base, sort);
+  }, [items, isAtRoot, sort]);
 
   const goUp = () => {
     const parent = `/${segments.slice(0, -1).join('/')}`;
@@ -462,6 +479,12 @@ const OpenListBrowser = () => {
   const changeView = (next: LibraryView) => {
     setView(next);
     writeLibraryView(next);
+  };
+
+  /** 切换排序方式并记住（名称 / 大小 / 时间 + 升降序） */
+  const changeSort = (next: LibrarySort) => {
+    setSort(next);
+    writeLibrarySort(next);
   };
 
   return (
@@ -772,6 +795,8 @@ const OpenListBrowser = () => {
                   onSegment={gotoSegment}
                   view={view}
                   onViewChange={changeView}
+                  sort={sort}
+                  onSortChange={changeSort}
                   onRefresh={() =>
                     loadDir(config ?? SERVER_LIBRARY_PLACEHOLDER, path)
                   }
