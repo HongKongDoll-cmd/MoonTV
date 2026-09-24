@@ -1,5 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any,no-console,no-case-declarations */
 
+import {
+  normalizeDoubanRate,
+  normalizeRateLookupIds,
+  RATE_LOOKUP_CLIENT_TIMEOUT,
+  RATE_LOOKUP_LIMIT,
+} from './douban-rating';
 import { DoubanItem, DoubanResult } from './types';
 
 interface DoubanCategoriesParams {
@@ -110,6 +116,77 @@ function getDoubanProxyConfig(): {
     proxyType: doubanProxyType,
     proxyUrl: doubanProxy,
   };
+}
+
+/**
+ * 豆瓣评分缓存：`douban_id -> rate`。
+ *
+ * ⚠️ 空字符串也是有效缓存值——表示「查过，确实没开分」。综艺、刚上映的新片
+ * 在豆瓣本来就没有评分，不记住的话每次翻页都会再打一遍豆瓣。
+ */
+const doubanRateCache = new Map<string, string>();
+
+/**
+ * 批量补全豆瓣评分。
+ *
+ * 搜索结果（Apple CMS）只带 `douban_id` 没有评分，卡片上就看不到评分角标。
+ * 这里按 id 批量去 `/api/douban/ratings` 换评分：命中缓存的直接返回，
+ * 只有没查过的 id 才会真正发请求（单批上限 `RATE_LOOKUP_LIMIT`）。
+ *
+ * ⚠️ 失败静默：评分是锦上添花，不能因为补不到就让整个列表挂掉。
+ */
+export async function fetchDoubanRates(
+  ids: Array<string | number | null | undefined>,
+  limit: number = RATE_LOOKUP_LIMIT
+): Promise<Record<string, string>> {
+  const cleaned = normalizeRateLookupIds(ids, limit);
+  const rates: Record<string, string> = {};
+  const pending: string[] = [];
+
+  cleaned.forEach((id) => {
+    const cached = doubanRateCache.get(id);
+    if (cached === undefined) {
+      pending.push(id);
+      return;
+    }
+    if (cached) rates[id] = cached;
+  });
+
+  if (pending.length === 0) return rates;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    RATE_LOOKUP_CLIENT_TIMEOUT
+  );
+
+  try {
+    const response = await fetch('/api/douban/ratings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: pending }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! Status: ${response.status}`);
+    }
+
+    const data = (await response.json()) as { rates?: Record<string, string> };
+    const fetched = data?.rates || {};
+
+    pending.forEach((id) => {
+      const rate = normalizeDoubanRate(fetched[id]);
+      doubanRateCache.set(id, rate); // 空值也写入＝负面缓存
+      if (rate) rates[id] = rate;
+    });
+  } catch {
+    clearTimeout(timeoutId);
+    // 补全失败不抛：调用方照常用没有评分的数据渲染
+  }
+
+  return rates;
 }
 
 /**

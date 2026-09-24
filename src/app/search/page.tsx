@@ -12,6 +12,7 @@ import {
   getSearchHistory,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
+import { fetchDoubanRates } from '@/lib/douban.client';
 import { SearchResult } from '@/lib/types';
 import { getRequestTimeout } from '@/lib/utils';
 
@@ -241,6 +242,33 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
 
   const hasMoreExact = sortedAggregatedResults.exact.length > displayedExactCount;
   const hasMoreOthers = sortedAggregatedResults.others.length > displayedOthersCount;
+
+  // 豆瓣评分补全：结果只带 douban_id 没有评分，这里按 id 批量换评分再显示角标
+  const [doubanRates, setDoubanRates] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const ids: Array<string> = [];
+    const collect = (groups: [string, SearchResult[]][]) => {
+      groups.forEach(([, group]) => {
+        const doubanId = group[0]?.douban_id;
+        if (doubanId && doubanId > 0) ids.push(String(doubanId));
+      });
+    };
+    collect(displayedExactResults);
+    collect(displayedOthersResults);
+
+    if (ids.length === 0) return;
+
+    let cancelled = false;
+    fetchDoubanRates(ids).then((rates) => {
+      if (cancelled || Object.keys(rates).length === 0) return;
+      setDoubanRates((prev) => ({ ...prev, ...rates }));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [displayedExactResults, displayedOthersResults]);
 
 
 
@@ -792,6 +820,7 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
                       <VideoCard
                         from="search"
                         items={group}
+                        rate={doubanRates[String(group[0]?.douban_id ?? '')]}
                         query={searchQuery.trim() !== group[0].title ? searchQuery.trim() : ''}
                       />
                     </div>
@@ -808,6 +837,7 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
                         source={item.source}
                         source_name={item.source_name}
                         douban_id={item.douban_id}
+                        rate={doubanRates[String(item.douban_id ?? '')]}
                         query={searchQuery.trim() !== item.title ? searchQuery.trim() : ''}
                         year={item.year}
                         from="search"
@@ -850,6 +880,7 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
                           <VideoCard
                             from="search"
                             items={group}
+                            rate={doubanRates[String(group[0]?.douban_id ?? '')]}
                             query={searchQuery.trim() !== group[0].title ? searchQuery.trim() : ''}
                           />
                         </div>
@@ -866,6 +897,7 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
                             source={item.source}
                             source_name={item.source_name}
                             douban_id={item.douban_id}
+                            rate={doubanRates[String(item.douban_id ?? '')]}
                             query={searchQuery.trim() !== item.title ? searchQuery.trim() : ''}
                             year={item.year}
                             from="search"

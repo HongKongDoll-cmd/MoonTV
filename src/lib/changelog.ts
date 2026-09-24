@@ -11,6 +11,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.4.8",
+    date: "2026-09-24",
+    added: [
+    "搜索结果显示豆瓣评分: 搜索结果卡片只要带豆瓣 ID 就会批量补全评分, 左上角出现粉色评分角标(可点击跳豆瓣); 数据源本身不提供评分, 由服务端按 ID 批量向豆瓣查询, 已查过的结果本地缓存不重复请求",
+    "搜索卡片评分与年份角标并排显示, 不再互相遮挡"
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "4.4.7",
     date: "2026-09-24",
     added: [

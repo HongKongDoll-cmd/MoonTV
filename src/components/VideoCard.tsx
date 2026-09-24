@@ -348,7 +348,8 @@ export default function VideoCard({
         showFollowButton: !isAggregate,
         showCheckCircle: false,
         showDoubanLink: !!actualDoubanId,
-        showRating: false,
+        // 搜索结果本身不带评分，由搜索页按 douban_id 批量补全后传进来
+        showRating: !!rate,
       },
       douban: {
         showSourceName: false,
@@ -511,24 +512,25 @@ export default function VideoCard({
           </div>
         )}
 
-        {/* ⭐ 评分显示（左上角小圆圈，可跳转豆瓣或 Bangumi） */}
-        {config.showRating && rate && actualDoubanId && (
-          <div
-            className="absolute top-2 left-2 bg-pink-500 text-white text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full shadow-md cursor-pointer hover:bg-pink-600 transition"
-          >
-            {rate}
-          </div>
-        )}
+        {/* ⭐ 评分 / 📅 年份（左上角并排——两者都定位在 top-2 left-2，
+            直接各放一个 absolute 会叠在一起，所以装进同一个 flex 容器） */}
+        <div className="absolute top-2 left-2 flex items-center gap-1">
+          {config.showRating && rate && actualDoubanId && (
+            <div
+              className="bg-pink-500 text-white text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full shadow-md cursor-pointer hover:bg-pink-600 transition"
+            >
+              {rate}
+            </div>
+          )}
 
-
-        {/* 📅 年份显示（左上角） */}
-        {from === 'search' && actualYear && actualYear.toLowerCase() !== 'unknown' && (
-        <div
-          className="absolute top-2 left-2 bg-black/60 text-white text-[10px] sm:text-xs font-medium px-2 py-0.5 rounded-full shadow-md"
-        >
-          {actualYear}
+          {from === 'search' && actualYear && actualYear.toLowerCase() !== 'unknown' && (
+            <div
+              className="bg-black/60 text-white text-[10px] sm:text-xs font-medium px-2 py-0.5 rounded-full shadow-md"
+            >
+              {actualYear}
+            </div>
+          )}
         </div>
-        )}
 
         {/* 🔗 豆瓣/Bangumi跳转链接（左下角） */}
         {config.showDoubanLink && actualDoubanId && (
