@@ -129,6 +129,14 @@ export interface SearchResult {
   desc?: string;
   type_name?: string;
   douban_id?: number;
+  /**
+   * 起始集号（0 基）。
+   *
+   * 影库「点文件进整个文件夹」用：URL 的 id 是单个文件，详情却返回
+   * 它所在文件夹的全部视频作选集，这里告诉播放页应该从第几集开始播。
+   * `ep` 参数与播放记录的优先级更高，此字段只做兜底定位。
+   */
+  startIndex?: number;
 }
 
 // 豆瓣数据结构

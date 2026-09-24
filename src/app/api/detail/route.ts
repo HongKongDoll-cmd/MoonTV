@@ -125,6 +125,8 @@ async function handleOpenListDetail(request: Request, path: string) {
 
   let episodes: string[] = [];
   let episodeTitles: string[] = [];
+  /** 单文件展开成所在文件夹的选集时，点的文件在第几集（0 基） */
+  let startIndex: number | undefined;
 
   if (isDir) {
     const listing = await requestOpenList(config, 'list', path);
@@ -158,12 +160,41 @@ async function handleOpenListDetail(request: Request, path: string) {
       poster = buildLibraryImageUrl(joinOpenListPath(path, dirCover));
     }
   } else {
-    episodes = [buildPlayableUrl(config.baseUrl, path, entry?.sign, entry?.raw_url)];
-    episodeTitles = [title];
+    // 单文件也展开「所在文件夹」的全部视频作选集（4.4.7）：
+    // 点文件夹里的第 3 集进来，右侧只有「换源」没有选集，等于把
+    // 「文件夹就是一部剧」的直觉打断了。这里复用目录的摊平逻辑，
+    // 用 startIndex 告诉播放页从点的那个文件开始播。
+    const parentPath = path.replace(/\/[^/]*$/, '') || '/';
+    const parentListing = await requestOpenList(config, 'list', parentPath);
+    if (parentListing.ok) {
+      const parentContent = (
+        (parentListing.data?.data?.content ?? []) as any[]
+      ).filter((item) => item && typeof item?.name === 'string');
+
+      const videos = (
+        await collectOpenListVideos(config, parentPath, parentContent)
+      ).sort((a, b) => naturalCompare(a.relPath, b.relPath));
+
+      if (videos.length > 1) {
+        episodes = videos.map((video) =>
+          buildPlayableUrl(config.baseUrl, video.fullPath, video.sign, video.rawUrl)
+        );
+        episodeTitles = videos.map((video) => video.relPath);
+        startIndex = videos.findIndex((video) => video.fullPath === path);
+        if (startIndex < 0) startIndex = undefined;
+      }
+    }
+    // 列父目录失败或里面只有这一个视频时，保持单集播放（下面的兜底）
+
+    if (episodes.length === 0) {
+      episodes = [
+        buildPlayableUrl(config.baseUrl, path, entry?.sign, entry?.raw_url),
+      ];
+      episodeTitles = [title];
+    }
 
     // 单集视频：封面在它所在目录里，多列一次目录换一张海报是划算的
     if (!poster) {
-      const parentPath = path.replace(/\/[^/]*$/, '') || '/';
       const coverPath = await findLibraryCoverPath(config, parentPath, title);
       if (coverPath) poster = buildLibraryImageUrl(coverPath);
     }
@@ -189,6 +220,9 @@ async function handleOpenListDetail(request: Request, path: string) {
     desc: isDir ? `影库目录：${path}` : `影库文件：${path}`,
     type_name: isDir ? '剧集' : '影片',
   };
+  if (startIndex !== undefined) {
+    result.startIndex = startIndex;
+  }
 
   return NextResponse.json(result, {
     headers: { 'Cache-Control': 'no-store' },

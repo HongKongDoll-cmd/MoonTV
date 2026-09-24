@@ -11,6 +11,19 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.4.7",
+    date: "2026-09-24",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+    "影库播放页右侧没有剧集列表(只有换源): 点单个视频文件时详情现在会展开它所在文件夹的全部视频作选集, 并自动定位到点的那一集; 文件夹就是一部剧的直觉回来了, 目录播放行为不变"
+    ]
+  },
+  {
     version: "4.4.6",
     date: "2026-09-24",
     added: [

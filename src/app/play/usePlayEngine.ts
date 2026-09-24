@@ -627,6 +627,8 @@ export function usePlayEngine() {
 
   // 用于记录是否需要在播放器 ready 后跳转到指定进度
   const resumeTimeRef = useRef<number | null>(null);
+  // 播放记录 / ep 参数是否已经定好了起始集（有则不用 startIndex 兜底）
+  const startEpisodeResolvedRef = useRef(false);
   // 上次使用的音量。初值取记住的偏好，保证首次播放就用对音量。
   const lastVolumeRef = useRef<number>(loadVolume());
   // 上次使用的播放速率。同样以记住的偏好为初值。
@@ -1221,6 +1223,20 @@ export function usePlayEngine() {
         setCurrentEpisodeIndex(detailData.episodes.length - 1);
       }
 
+      // 影库「点文件进整个文件夹」（4.4.7）：URL 的 id 是单个文件，详情返回的
+      // 却是所在文件夹的全部选集，用 startIndex 定位到点的那个文件。
+      // ep 参数与播放记录优先（它们已设置 startEpisodeResolvedRef），这里只兜底。
+      if (
+        !startEpisodeResolvedRef.current &&
+        typeof detailData.startIndex === 'number' &&
+        Number.isInteger(detailData.startIndex) &&
+        detailData.startIndex > 0 &&
+        detailData.startIndex < detailData.episodes.length
+      ) {
+        setCurrentEpisodeIndex(detailData.startIndex);
+        startEpisodeResolvedRef.current = true;
+      }
+
       // 规范 URL 参数
       const newUrl = new URL(window.location.href);
       newUrl.searchParams.set('source', detailData.source);
@@ -1490,6 +1506,7 @@ export function usePlayEngine() {
             setCurrentEpisodeIndex(requestedIndex);
           }
           resumeTimeRef.current = targetTime;
+          startEpisodeResolvedRef.current = true;
           return;
         }
 
@@ -1504,6 +1521,7 @@ export function usePlayEngine() {
 
           // 保存待恢复的播放进度，待播放器就绪后跳转
           resumeTimeRef.current = targetTime;
+          startEpisodeResolvedRef.current = true;
         }
       } catch (err) {
         console.error('读取播放记录失败:', err);
