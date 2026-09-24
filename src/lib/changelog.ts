@@ -11,6 +11,19 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.5.2",
+    date: "2026-09-24",
+    added: [
+    "播放链路诊断条: 影库视频是单文件(mkv/mp4)不走 hls.js, 播放慢的时候分不清是「影库服务器中转太慢」还是「自己带宽不够」; 播放页(仅影库/Emby 来源)新增一行诊断, 显示当前链路是网盘直连还是经影库服务器中转、缓冲水位、补缓冲速度倍率(每秒能补回几秒内容, 低于 1× 就在吃老本)与卡顿次数, 各项带悬停说明; 采样状态内聚在诊断条组件里, 不会拖慢播放页整体渲染"
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "4.5.1",
     date: "2026-09-24",
     added: [

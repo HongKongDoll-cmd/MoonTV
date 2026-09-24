@@ -3,7 +3,9 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+
+import { readOpenListConfigFromCookie } from '@/lib/openlist';
 
 import AddDownloadModal from '@/components/AddDownloadModal';
 import { BackButton } from '@/components/BackButton';
@@ -12,6 +14,7 @@ import DanmakuSelector from '@/components/DanmakuSelector';
 import EpisodeSelector from '@/components/EpisodeSelector';
 import PageLayout from '@/components/PageLayout';
 
+import { PlaybackNetworkBar } from './components/PlaybackNetworkBar';
 import { ErrorView, LoadingView, VideoLoadingMask } from './components/PlayStatusView';
 import { VideoDetailPanel } from './components/VideoDetailPanel';
 import { usePlayEngine } from './usePlayEngine';
@@ -25,6 +28,13 @@ import { usePlayEngine } from './usePlayEngine';
 export default function PlayClient() {
   const router = useRouter();
   const [showAddDownload, setShowAddDownload] = useState(false);
+
+  // 影库地址（个人配置存 cookie，服务端不下发地址）：只用来判断播放地址
+  // 是否与影库同源 = 走服务器中转。站点级配置拿不到地址，靠 URL 特征兜底。
+  const [libraryHost, setLibraryHost] = useState<string | null>(null);
+  useEffect(() => {
+    setLibraryHost(readOpenListConfigFromCookie()?.baseUrl ?? null);
+  }, []);
 
   const {
     // 加载 / 错误
@@ -187,6 +197,17 @@ export default function PlayClient() {
             </div>
           </div>
         </div>
+
+        {/* 链路诊断：只给影库来源看。网盘视频不走 hls.js，播放慢的时候
+            用户没法判断是服务器中转慢还是自己带宽不够，这里摆出来。
+            （普通采集站是 m3u8，由 hls.js 接管，这套指标不适用） */}
+        {(currentSource === 'openlist' || currentSource === 'emby') && (
+          <PlaybackNetworkBar
+            videoUrl={videoUrl}
+            libraryHost={libraryHost}
+            containerRef={artRef}
+          />
+        )}
 
         {/* 详情展示 */}
         <VideoDetailPanel
