@@ -11,6 +11,19 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.5.4",
+    date: "2026-10-03",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+    "左侧导航栏展开态变窄: 224px → 144px, 宽度按真机实测的内容宽度定(品牌行最宽、导航项约 98px、底部「下载管理」约 112px、影视库子菜单约 103px), 1440px 宽屏上把省下的 80px还给内容区; 折叠态仍是 72px, 内容区左内边距照旧跟随同一个变量自动生效"
+    ],
+    fixed: [
+    "侧边栏变窄后「影视库」等三字标签折成上下两行: 导航项、子菜单项、底部项的文字统一加 `whitespace-nowrap`, 宽度不够时宁可省略号截断也不再折行把整条侧栏撑歪"
+    ]
+  },
+  {
     version: "4.5.3",
     date: "2026-10-03",
     added: [

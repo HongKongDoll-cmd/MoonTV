@@ -21,8 +21,17 @@
 /** 折叠状态在 localStorage 中的键 */
 export const SIDENAV_COLLAPSED_KEY = 'moontv_sidenav_collapsed';
 
-/** 展开时侧边栏宽度（px） */
-export const SIDENAV_WIDTH_EXPANDED = 224;
+/**
+ * 展开时侧边栏宽度（px）。
+ *
+ * 按内容实测取值，不是拍脑袋（真机量过，见 docs/tools/check-sidenav-width.mjs）：
+ *   品牌行（站点名 + 折叠按钮）最宽 —— 收紧内距后仍需约 144px，是定宽的约束项
+ *   导航项（图标 + 文字 + 左右内边距）约 98px
+ *   底部「下载管理」四字约 112px
+ *   就地展开的影视库子菜单约 103px
+ * 原来的 224px 有一半是空地，在 1440px 宽屏上等于白白吃掉 80px 内容区。
+ */
+export const SIDENAV_WIDTH_EXPANDED = 144;
 
 /** 折叠时侧边栏宽度（px），只放得下图标 */
 export const SIDENAV_WIDTH_COLLAPSED = 72;

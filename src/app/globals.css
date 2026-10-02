@@ -282,7 +282,7 @@ div[data-media-provider] video {
    ========================================================================== */
 
 :root {
-  --moontv-sidenav-w: 224px;
+  --moontv-sidenav-w: 144px;
 }
 
 .moontv-sidenav {

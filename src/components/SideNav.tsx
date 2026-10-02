@@ -47,9 +47,15 @@ const LIBRARY_ITEMS = [
   { icon: Compass, label: '纪录片', href: '/douban?type=doc' },
 ];
 
-/** 导航项基础样式；折叠态由 globals.css 的 `.moontv-sidenav-item` 覆盖成居中图标 */
+/**
+ * 导航项基础样式；折叠态由 globals.css 的 `.moontv-sidenav-item` 覆盖成居中图标。
+ *
+ * `whitespace-nowrap` 是展开态只有 144px 的必要配套：没有它，「影视库」这种
+ * 三字标签会**折成上下两行**（不是被裁掉，所以只看溢出检测发现不了），
+ * 一行导航里混进两行高，整条侧栏就歪了。宽度真不够时宁可 truncate。
+ */
 const ITEM_CLASS =
-  'moontv-sidenav-item group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 transition-colors duration-200 hover:bg-gray-100/70 hover:text-green-600 dark:text-gray-300 dark:hover:bg-gray-800/70 dark:hover:text-green-400';
+  'moontv-sidenav-item group flex items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 transition-colors duration-200 hover:bg-gray-100/70 hover:text-green-600 dark:text-gray-300 dark:hover:bg-gray-800/70 dark:hover:text-green-400';
 
 /**
  * 全站左侧导航栏（桌面端常驻，4.2.9 起不再限于首页）。
@@ -164,8 +170,9 @@ const SideNav = () => {
     >
       {/* 顶部：站点名 / 展开开关 + 折叠开关。
           折叠态刻意换成「展开」按钮而不是继续显示站点名 —— 站点名是装饰，
-          展开是功能，折叠后必须留一个入口。回首页由导航区的「首页」图标承担。 */}
-      <div className='moontv-sidenav-head flex h-16 flex-shrink-0 items-center gap-2 border-b border-gray-200/60 px-3 dark:border-gray-700/50'>
+          展开是功能，折叠后必须留一个入口。回首页由导航区的「首页」图标承担。
+          内距按「展开态只有 144px」收紧，给自定义长站点名留余量。 */}
+      <div className='moontv-sidenav-head flex h-16 flex-shrink-0 items-center gap-1.5 border-b border-gray-200/60 px-2.5 dark:border-gray-700/50'>
         <Link
           href='/'
           className='sidenav-expanded-only flex min-w-0 flex-1 items-center justify-center select-none'
@@ -178,7 +185,7 @@ const SideNav = () => {
         <button
           type='button'
           onClick={toggleCollapsed}
-          className='sidenav-expanded-only flex-shrink-0 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200'
+          className='sidenav-expanded-only flex-shrink-0 rounded-lg p-1 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200'
           title='收起侧边栏'
           aria-label='收起侧边栏'
         >
@@ -331,7 +338,7 @@ const SideNav = () => {
               </span>
             )}
           </span>
-          <span className='sidenav-expanded-only'>下载管理</span>
+          <span className='sidenav-expanded-only whitespace-nowrap'>下载管理</span>
         </button>
 
         <div className='moontv-sidenav-actions mt-1'>
