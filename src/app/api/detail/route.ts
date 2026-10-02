@@ -19,6 +19,7 @@ import {
   relativeOpenListPath,
   requestOpenList,
 } from '@/lib/openlist';
+import { buildSubtitleTracks, isSubtitleFile } from '@/lib/subtitle';
 import type { SearchResult } from '@/lib/types';
 
 export const runtime = 'edge';
@@ -34,6 +35,8 @@ const FLATTEN_MAX_LIST_CALLS = 50;
 
 /** 递归展开的视频数量上限（单部剧集远用不到这么多，超过说明选错了目录） */
 const FLATTEN_MAX_VIDEOS = 500;
+/** 4.5.7：字幕文件上限，防止整季字幕把详情响应撑爆 */
+const FLATTEN_MAX_SUBTITLES = 60;
 
 /** Emby 影库的来源代号；播放页 `?source=emby&id=<条目ID>` */
 const EMBY_SOURCE = 'emby';
@@ -127,6 +130,8 @@ async function handleOpenListDetail(request: Request, path: string) {
   let episodeTitles: string[] = [];
   /** 单文件展开成所在文件夹的选集时，点的文件在第几集（0 基） */
   let startIndex: number | undefined;
+  /** 4.5.7：同目录/子树里扫到的字幕轨 */
+  let subtitleTracks: ReturnType<typeof buildSubtitleTracks> = [];
 
   if (isDir) {
     const listing = await requestOpenList(config, 'list', path);
@@ -141,10 +146,12 @@ async function handleOpenListDetail(request: Request, path: string) {
     );
 
     // 目录当剧集：递归收集整棵子树里的视频（季/子文件夹自动摊平成选集），
-    // 按相对路径自然序排（S1E2 在 S1E10 之前）
-    const videos = (
-      await collectOpenListVideos(config, path, content)
-    ).sort((a, b) => naturalCompare(a.relPath, b.relPath));
+    // 按相对路径自然序排（S1E2 在 S1E10 之前）。字幕顺带一起收上来。
+    const flattened = await collectOpenListVideos(config, path, content);
+    const videos = [...flattened.videos].sort((a, b) =>
+      naturalCompare(a.relPath, b.relPath)
+    );
+    subtitleTracks = buildSubtitleTracks(flattened.subtitles);
 
     episodes = videos.map((video) =>
       buildPlayableUrl(config.baseUrl, video.fullPath, video.sign, video.rawUrl)
@@ -171,9 +178,15 @@ async function handleOpenListDetail(request: Request, path: string) {
         (parentListing.data?.data?.content ?? []) as any[]
       ).filter((item) => item && typeof item?.name === 'string');
 
-      const videos = (
-        await collectOpenListVideos(config, parentPath, parentContent)
-      ).sort((a, b) => naturalCompare(a.relPath, b.relPath));
+      const flattened = await collectOpenListVideos(
+        config,
+        parentPath,
+        parentContent
+      );
+      const videos = [...flattened.videos].sort((a, b) =>
+        naturalCompare(a.relPath, b.relPath)
+      );
+      subtitleTracks = buildSubtitleTracks(flattened.subtitles);
 
       if (videos.length > 1) {
         episodes = videos.map((video) =>
@@ -223,6 +236,9 @@ async function handleOpenListDetail(request: Request, path: string) {
   if (startIndex !== undefined) {
     result.startIndex = startIndex;
   }
+  if (subtitleTracks.length > 0) {
+    result.subtitles = subtitleTracks;
+  }
 
   return NextResponse.json(result, {
     headers: { 'Cache-Control': 'no-store' },
@@ -241,9 +257,16 @@ async function collectOpenListVideos(
   config: OpenListConfig,
   rootPath: string,
   firstLevelItems: any[]
-): Promise<
-  { relPath: string; fullPath: string; sign?: string; rawUrl?: string }[]
-> {
+): Promise<{
+  videos: {
+    relPath: string;
+    fullPath: string;
+    sign?: string;
+    rawUrl?: string;
+  }[];
+  /** 4.5.7：同一次遍历里顺带收上来的字幕（不额外发请求） */
+  subtitles: { name: string; url: string }[];
+}> {
   const budget = { listCalls: 1, videos: 0 };
   const videos: {
     relPath: string;
@@ -251,6 +274,7 @@ async function collectOpenListVideos(
     sign?: string;
     rawUrl?: string;
   }[] = [];
+  const subtitleFiles: { name: string; url: string }[] = [];
 
   const isExhausted = () =>
     budget.videos >= FLATTEN_MAX_VIDEOS ||
@@ -258,16 +282,32 @@ async function collectOpenListVideos(
 
   const collectFrom = (dirPath: string, items: any[]) => {
     for (const item of items) {
-      if (budget.videos >= FLATTEN_MAX_VIDEOS) return;
       if (!item || item.is_dir === true) continue;
       const name = item.name;
-      if (typeof name !== 'string' || !isVideoFile(name)) continue;
+      if (typeof name !== 'string') continue;
       const fullPath = joinOpenListPath(dirPath, name);
+      const sign = typeof item.sign === 'string' ? item.sign : undefined;
+      const rawUrl = typeof item.raw_url === 'string' ? item.raw_url : undefined;
+
+      // 字幕：与视频走同一次目录遍历，不额外请求；
+      // 数量上限防止整个剧集目录塞满字幕时把详情撑爆
+      if (isSubtitleFile(name) && subtitleFiles.length < FLATTEN_MAX_SUBTITLES) {
+        // 刻意**不**用网盘直链：跨域没有 CORS 头，播放器 fetch 不到字幕。
+        // 统一走本站 /api/library-file 由服务端带凭据取回并补 CORS 头。
+        subtitleFiles.push({
+          name,
+          url: `/api/library-file?path=${encodeURIComponent(fullPath)}`,
+        });
+        continue;
+      }
+
+      if (budget.videos >= FLATTEN_MAX_VIDEOS) continue;
+      if (!isVideoFile(name)) continue;
       videos.push({
         relPath: relativeOpenListPath(fullPath, rootPath),
         fullPath,
-        sign: typeof item.sign === 'string' ? item.sign : undefined,
-        rawUrl: typeof item.raw_url === 'string' ? item.raw_url : undefined,
+        sign,
+        rawUrl,
       });
       budget.videos++;
     }
@@ -310,7 +350,7 @@ async function collectOpenListVideos(
     depth++;
   }
 
-  return videos;
+  return { videos, subtitles: subtitleFiles };
 }
 
 /**

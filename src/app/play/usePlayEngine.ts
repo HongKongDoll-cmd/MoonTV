@@ -3,7 +3,7 @@
 'use client';
 
 import { useSearchParams } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   setSettingSwitch,
@@ -81,6 +81,13 @@ import {
   ShortcutActionId,
   ShortcutBindings,
 } from '@/lib/shortcuts';
+import {
+  type SubtitleStylePreset,
+  type SubtitleTrack,
+  pickSubtitleTrack,
+  SUBTITLE_STYLE_PRESETS,
+  toSubtitleStyleObject,
+} from '@/lib/subtitle';
 import { SearchResult } from '@/lib/types';
 import { getRequestTimeout, getVideoResolutionFromM3u8 } from '@/lib/utils';
 import {
@@ -365,6 +372,12 @@ export function usePlayEngine() {
   const [isDanmakuLoading, setIsDanmakuLoading] = useState(false);
 
   // 跳过片头片尾配置
+  /** 4.5.7：当前生效的字幕地址（null = 关闭字幕） */
+  const [activeSubtitleUrl, setActiveSubtitleUrl] = useState<string | null>(null);
+  const [subtitleStyleId, setSubtitleStyleId] = useState<string>('medium');
+  /** 用户手动关掉字幕后，同一集切回来不要又自动挂上 */
+  const subtitleMutedRef = useRef(false);
+
   const [skipConfig, setSkipConfig] = useState<SkipConfig>({
     enable: false,
     intro_time: 0,
@@ -960,6 +973,90 @@ export function usePlayEngine() {
       setVideoUrl(newUrl);
     }
   };
+
+  /** 影库详情带回来的字幕轨（其它来源为空） */
+  const subtitleTracks: SubtitleTrack[] = detail?.subtitles ?? [];
+
+  /** 当前这一集的视频文件名（用于按集数挑字幕） */
+  const currentVideoName = useMemo(() => {
+    const title = detail?.episodes_titles?.[currentEpisodeIndex];
+    if (title) return title.split('/').pop() || title;
+    return '';
+  }, [detail, currentEpisodeIndex]);
+
+  /** 切换字幕（null = 关闭）。ArtPlayer 的 subtitle.switch 会自己去取并解析。 */
+  const switchSubtitle = useCallback(
+    async (track: SubtitleTrack | null): Promise<boolean> => {
+      const art = artPlayerRef.current;
+      if (!art) return false;
+      if (!track) {
+        subtitleMutedRef.current = true;
+        setActiveSubtitleUrl(null);
+        return true;
+      }
+      try {
+        await art.subtitle.switch(track.url, {
+          type: track.type,
+          encoding: 'utf-8',
+        });
+        // 挂上新字幕后把当前字号重新应用一次，否则会用播放器默认值
+        const preset =
+          SUBTITLE_STYLE_PRESETS.find((p) => p.id === subtitleStyleId) ??
+          SUBTITLE_STYLE_PRESETS[1];
+        art.subtitle.style(toSubtitleStyleObject(preset));
+        subtitleMutedRef.current = false;
+        setActiveSubtitleUrl(track.url);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [subtitleStyleId]
+  );
+
+  /** 改字幕字号 */
+  const changeSubtitleStyle = useCallback((preset: SubtitleStylePreset) => {
+    setSubtitleStyleId(preset.id);
+    const art = artPlayerRef.current;
+    if (!art) return;
+    try {
+      art.subtitle.style(toSubtitleStyleObject(preset));
+    } catch {
+      /* 播放器未就绪 */
+    }
+  }, []);
+
+  // 切集/换源后自动挑一条字幕挂上（用户手动关过就不打扰）
+  useEffect(() => {
+    if (subtitleTracks.length === 0 || !currentVideoName) return;
+    if (subtitleMutedRef.current) return;
+    const art = artPlayerRef.current;
+    if (!art) return;
+    const picked = pickSubtitleTrack(currentVideoName, subtitleTracks);
+    if (!picked) {
+      setActiveSubtitleUrl(null);
+      return;
+    }
+    let cancelled = false;
+    art.subtitle
+      .switch(picked.url, { type: picked.type, encoding: 'utf-8' })
+      .then(() => {
+        if (cancelled) return;
+        const preset =
+          SUBTITLE_STYLE_PRESETS.find((p) => p.id === subtitleStyleId) ??
+          SUBTITLE_STYLE_PRESETS[1];
+        art.subtitle.style(toSubtitleStyleObject(preset));
+        setActiveSubtitleUrl(picked.url);
+      })
+      .catch(() => {
+        if (!cancelled) setActiveSubtitleUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // subtitleStyleId 只在初次挂载时参与，切集不该因为它重跑
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentVideoName, subtitleTracks]);
 
   const ensureVideoSource = (video: HTMLVideoElement | null, url: string) => {
     if (!video || !url) return;
@@ -3614,6 +3711,13 @@ export function usePlayEngine() {
     currentEpisodeIndex,
     videoUrl,
     skipConfig,
+    // 字幕（4.5.7）
+    subtitleTracks,
+    currentVideoName,
+    activeSubtitleUrl,
+    subtitleStyleId,
+    switchSubtitle,
+    changeSubtitleStyle,
     // 播放器
     artRef,
     isVideoLoading,

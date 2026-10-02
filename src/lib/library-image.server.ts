@@ -194,3 +194,109 @@ export async function findLibraryCoverPath(
   if (!coverName) return '';
   return joinOpenListPath(dirPath, coverName);
 }
+
+// ---------------------------------------------------------------------------
+// 字幕文件（4.5.7）
+// ---------------------------------------------------------------------------
+
+/** 字幕回源超时：字幕都很小，但网盘抽风时不能无限等 */
+const SUBTITLE_FETCH_TIMEOUT_MS = 10_000;
+
+/** 字幕体积上限：正常 srt/ass 几十 KB，1MB 足够异常的整季合集 */
+const SUBTITLE_MAX_BYTES = 1024 * 1024;
+
+export interface LibrarySubtitleResult {
+  ok: boolean;
+  status: number;
+  error?: string;
+  body?: ArrayBuffer;
+  contentType?: string;
+}
+
+/** 按扩展名给字幕一个明确的 Content-Type（上游常常只给 text/plain） */
+function subtitleContentType(name: string): string {
+  const lower = name.toLowerCase();
+  if (lower.endsWith('.ass') || lower.endsWith('.ssa')) {
+    return 'text/x-ssa; charset=utf-8';
+  }
+  if (lower.endsWith('.vtt')) return 'text/vtt; charset=utf-8';
+  if (lower.endsWith('.sub')) return 'text/plain; charset=utf-8';
+  if (lower.endsWith('.smi')) return 'application/x-smi; charset=utf-8';
+  return 'text/plain; charset=utf-8';
+}
+
+/**
+ * 读取影库里的一个字幕文件。
+ *
+ * 与封面的差别只有两点：不做「必须是图片」的内容类型校验（字幕上游类型
+ * 很杂），改成按**扩展名**判定；体积上限小得多。
+ * 其余流程一致：`fs/get` 换直链 → 校验地址 → 带令牌回源取字节。
+ */
+export async function fetchLibrarySubtitle(
+  config: OpenListConfig,
+  path: string
+): Promise<LibrarySubtitleResult> {
+  const name = path.split('/').filter(Boolean).pop() || '';
+
+  const info = await requestOpenList(config, 'get', path);
+  if (!info.ok) {
+    return {
+      ok: false,
+      status: info.status ?? 502,
+      error: info.error ?? '读取影库失败',
+    };
+  }
+
+  const entry = (info.data?.data ?? {}) as Record<string, unknown>;
+  if (entry?.is_dir === true) {
+    return { ok: false, status: 400, error: '不是字幕文件' };
+  }
+
+  const target = buildPlayableUrl(
+    config.baseUrl,
+    path,
+    typeof entry?.sign === 'string' ? entry.sign : undefined,
+    typeof entry?.raw_url === 'string' ? entry.raw_url : undefined
+  );
+  if (!target) {
+    return { ok: false, status: 400, error: '影库地址无效' };
+  }
+
+  const guard = validateMediaUrl(target, undefined, {
+    allowPrivateNetwork: config.allowPrivateNetwork === true,
+  });
+  if (!guard.ok) {
+    return { ok: false, status: 403, error: guard.reason };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SUBTITLE_FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(target, { signal: controller.signal });
+    if (!response.ok) {
+      return { ok: false, status: 502, error: '取回字幕失败' };
+    }
+
+    const declared = Number(response.headers.get('content-length') ?? '0');
+    if (declared > SUBTITLE_MAX_BYTES) {
+      return { ok: false, status: 413, error: '字幕文件过大' };
+    }
+
+    const buffer = await response.arrayBuffer();
+    if (buffer.byteLength > SUBTITLE_MAX_BYTES) {
+      return { ok: false, status: 413, error: '字幕文件过大' };
+    }
+
+    return {
+      ok: true,
+      status: 200,
+      body: buffer,
+      contentType: subtitleContentType(name),
+    };
+  } catch {
+    return { ok: false, status: 502, error: '取回字幕失败' };
+  } finally {
+    clearTimeout(timer);
+  }
+}

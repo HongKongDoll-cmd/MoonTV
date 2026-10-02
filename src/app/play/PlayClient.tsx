@@ -17,6 +17,7 @@ import PageLayout from '@/components/PageLayout';
 import { HotkeyHelp } from './components/HotkeyHelp';
 import { PlaybackNetworkBar } from './components/PlaybackNetworkBar';
 import { ErrorView, LoadingView, VideoLoadingMask } from './components/PlayStatusView';
+import { SubtitlePanel } from './components/SubtitlePanel';
 import { VideoDetailPanel } from './components/VideoDetailPanel';
 import { usePlayEngine } from './usePlayEngine';
 
@@ -56,6 +57,13 @@ export default function PlayClient() {
     currentEpisodeIndex,
     videoUrl,
     skipConfig,
+    // 字幕（4.5.7）
+    subtitleTracks,
+    currentVideoName,
+    activeSubtitleUrl,
+    subtitleStyleId,
+    switchSubtitle,
+    changeSubtitleStyle,
     // 播放器
     artRef,
     isVideoLoading,
@@ -125,6 +133,14 @@ export default function PlayClient() {
         {/* 顶部操作栏：返回上一级（不想看了直接退出，不用回主页重新找） */}
         <div className='flex items-center gap-3 px-3 pt-3 pb-2 lg:px-0 lg:pt-4'>
           <BackButton showLabel />
+          <SubtitlePanel
+            tracks={subtitleTracks}
+            videoName={currentVideoName}
+            activeUrl={activeSubtitleUrl}
+            onSwitch={switchSubtitle}
+            onStyleChange={changeSubtitleStyle}
+            initialPresetId={subtitleStyleId}
+          />
           <HotkeyHelp />
           {videoTitle && (
             <span className='truncate text-sm text-gray-500 dark:text-gray-400'>

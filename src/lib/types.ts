@@ -1,4 +1,5 @@
 import { AdminConfig } from './admin.types';
+import type { SubtitleTrack } from './subtitle';
 
 // 播放记录数据结构
 export interface PlayRecord {
@@ -137,6 +138,8 @@ export interface SearchResult {
    * `ep` 参数与播放记录的优先级更高，此字段只做兜底定位。
    */
   startIndex?: number;
+  /** 4.5.7：影库同目录/子树里扫到的字幕轨（可多选） */
+  subtitles?: SubtitleTrack[];
 }
 
 // 豆瓣数据结构

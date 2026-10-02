@@ -11,6 +11,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.5.7",
+    date: "2026-10-03",
+    added: [
+    "影库字幕: 自动扫描视频所在目录的字幕文件, 按集数与语言自动匹配当前这集, 简体优先",
+    "字幕面板: 播放页可切换字幕轨、开关字幕、字号三档, 也可手动填字幕直链",
+    "影库字幕代理: 字幕由服务端取回并补跨域头, 避免网盘直链被浏览器拦下"
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "4.5.6",
     date: "2026-10-03",
     added: [
