@@ -374,6 +374,13 @@ export function usePlayEngine() {
   // 跳过片头片尾配置
   /** 4.5.7：当前生效的字幕地址（null = 关闭字幕） */
   const [activeSubtitleUrl, setActiveSubtitleUrl] = useState<string | null>(null);
+  /**
+   * 播放器是否已创建好。
+   *
+   * 字幕自动挂载必须等它：详情先于播放器到达（早于它时 artPlayerRef 还是
+   * null），早挂一次就等于永远不挂 —— 因为依赖没变，effect 不会再跑。
+   */
+  const [playerReady, setPlayerReady] = useState(false);
   const [subtitleStyleId, setSubtitleStyleId] = useState<string>('medium');
   /** 用户手动关掉字幕后，同一集切回来不要又自动挂上 */
   const subtitleMutedRef = useRef(false);
@@ -1030,6 +1037,7 @@ export function usePlayEngine() {
   useEffect(() => {
     if (subtitleTracks.length === 0 || !currentVideoName) return;
     if (subtitleMutedRef.current) return;
+    if (!playerReady) return;
     const art = artPlayerRef.current;
     if (!art) return;
     const picked = pickSubtitleTrack(currentVideoName, subtitleTracks);
@@ -1056,7 +1064,7 @@ export function usePlayEngine() {
     };
     // subtitleStyleId 只在初次挂载时参与，切集不该因为它重跑
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentVideoName, subtitleTracks]);
+  }, [currentVideoName, subtitleTracks, playerReady]);
 
   const ensureVideoSource = (video: HTMLVideoElement | null, url: string) => {
     if (!video || !url) return;
@@ -2720,6 +2728,7 @@ export function usePlayEngine() {
         },
       };
 
+      setPlayerReady(false);
       artPlayerRef.current = new Artplayer({
         container: artRef.current,
         url: videoUrl,
@@ -3201,6 +3210,12 @@ export function usePlayEngine() {
           },
         ],
       });
+
+      // 4.5.7：播放器一旦构造完就允许字幕自动挂载（详见 playerReady 注释）。
+      // 刻意不等 'ready' 事件 —— 那个要等视频 metadata/首帧，弱网下会拖很久，
+      // 而 subtitle.switch 只需要 video 元素在就能建 track。
+      setPlayerReady(true);
+      artPlayerRef.current.on('ready', () => setPlayerReady(true));
 
       // 监听播放器事件
       artPlayerRef.current.on('ready', () => {

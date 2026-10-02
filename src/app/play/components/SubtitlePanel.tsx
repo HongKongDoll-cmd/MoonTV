@@ -219,11 +219,15 @@ export function SubtitlePanel({
                       <span className='truncate' title={track.fileName}>
                         {track.name}
                       </span>
-                      {isSuggested && !isActive && (
+                      {isActive ? (
+                        <span className='flex-shrink-0 rounded bg-green-500/20 px-1 text-[10px] text-green-700 dark:text-green-300'>
+                          当前
+                        </span>
+                      ) : isSuggested ? (
                         <span className='flex-shrink-0 rounded bg-blue-500/15 px-1 text-[10px] text-blue-600 dark:text-blue-300'>
                           推荐
                         </span>
-                      )}
+                      ) : null}
                     </button>
                   );
                 })
