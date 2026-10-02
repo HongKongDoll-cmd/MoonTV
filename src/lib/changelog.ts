@@ -11,6 +11,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.5.5",
+    date: "2026-10-03",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+    "图片代理开放 SSRF: `/api/image-proxy` 只能代理豆瓣图域名, 拒绝内网地址与任意外站",
+    "图片代理可被刷: 同一 IP 每分钟限 120 次, 防止公网部署被白耗出口带宽",
+    "登录接口无失败锁定: 同一 IP + 用户名连错 5 次锁 10 分钟, 登录成功即清零"
+    ]
+  },
+  {
     version: "4.5.4",
     date: "2026-10-03",
     added: [

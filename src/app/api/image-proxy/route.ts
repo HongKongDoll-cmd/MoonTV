@@ -1,6 +1,34 @@
 import { NextResponse } from 'next/server';
 
+import {
+  clientIpFromRequest,
+  createRateLimiter,
+  rateLimitResponse,
+} from '@/lib/rate-limit';
+import { validateMediaUrl } from '@/lib/url-guard';
+
 export const runtime = 'edge';
+
+/**
+ * 允许代理的图片域名。
+ *
+ * 这个接口在 middleware 里是**免登录**白名单，而它是把用户传入的 URL 直接
+ * 回源的通用 GET 代理 —— 不限制就等于对外开了一个能打你内网
+ * （`?url=http://169.254.169.254/...`）还能白烧你出口带宽的开放代理。
+ * 实际用它的只有豆瓣图链路（`processImageUrl` 与回退链），所以锁死豆瓣域名即可。
+ * 需要代理别的源时在这里加，别直接放开成任意 URL。
+ */
+const ALLOWED_IMAGE_HOSTS = [
+  '*.doubanio.com',
+  '*.doubanio.cmliussss.net',
+  '*.doubanio.cmliussss.com',
+];
+
+/** 单 IP 每分钟允许的取图次数：正常翻页约 60 张/页，阈值留足余量 */
+const RATE_LIMIT = createRateLimiter({
+  windowMs: 60_000,
+  max: 120,
+});
 
 // OrionTV 兼容接口
 export async function GET(request: Request) {
@@ -9,6 +37,21 @@ export async function GET(request: Request) {
 
   if (!imageUrl) {
     return NextResponse.json({ error: 'Missing image URL' }, { status: 400 });
+  }
+
+  const guard = validateMediaUrl(imageUrl, ALLOWED_IMAGE_HOSTS);
+  if (!guard.ok) {
+    return NextResponse.json(
+      { error: guard.reason ?? '不允许代理该地址' },
+      { status: 403 }
+    );
+  }
+
+  // 取不到 IP 时按共享桶处理，避免出现「无限额度」的情况
+  const ip = clientIpFromRequest(request) || 'unknown';
+  const limit = RATE_LIMIT.hit(ip);
+  if (!limit.allowed) {
+    return rateLimitResponse(limit, '取图过于频繁，请稍后再试');
   }
 
   try {

@@ -3,8 +3,31 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
+import {
+  clientIpFromRequest,
+  createRateLimiter,
+  rateLimitResponse,
+} from '@/lib/rate-limit';
 
 export const runtime = 'edge';
+
+/**
+ * 登录失败锁定。
+ *
+ * 之前这个接口没有任何失败次数限制，公网部署时可以被脚本无限次试密码。
+ * 规则：同一「IP + 用户名」连续失败 5 次锁 10 分钟；**成功一次立刻清零**，
+ * 所以正常用户手滑输错几次不会被误伤。
+ */
+const LOGIN_FAIL_LIMIT = createRateLimiter({
+  windowMs: 10 * 60_000,
+  max: 5,
+});
+
+/** 组装限流 key：取不到 IP 时用 'unknown' 兜底（同一桶一起算） */
+function loginKey(request: Request, username?: string): string {
+  const ip = clientIpFromRequest(request) || 'unknown';
+  return `${ip}|${(username || '').trim().toLowerCase()}`;
+}
 
 // 读取存储类型环境变量，默认 localstorage
 const STORAGE_TYPE =
@@ -67,6 +90,31 @@ async function generateAuthCookie(
 }
 
 export async function POST(req: NextRequest) {
+  // body 只解析一次：两种存储模式都要用，提前取出用户名才能算限流 key
+  let body: any = {};
+  try {
+    body = await req.json();
+  } catch {
+    body = {};
+  }
+  const username: string | undefined =
+    typeof body?.username === 'string' ? body.username : undefined;
+  const key = loginKey(req, username);
+
+  // 已被锁定：直接拒，不再走密码比对（省掉每次的哈希/数据库查询）
+  const locked = LOGIN_FAIL_LIMIT.peek(key);
+  if (!locked.allowed) {
+    return rateLimitResponse(locked, '登录失败次数过多，请稍后再试');
+  }
+
+  /** 记一次失败；若这次刚好把次数用尽，返回 429 而不是 401 */
+  const recordFailure = () => {
+    const result = LOGIN_FAIL_LIMIT.hit(key);
+    return result.allowed
+      ? null
+      : rateLimitResponse(result, '登录失败次数过多，请稍后再试');
+  };
+
   try {
     // 本地 / localStorage 模式——仅校验固定密码
     if (STORAGE_TYPE === 'localstorage') {
@@ -74,6 +122,7 @@ export async function POST(req: NextRequest) {
 
       // 未配置 PASSWORD 时直接放行
       if (!envPassword) {
+        LOGIN_FAIL_LIMIT.reset(key);
         const response = NextResponse.json({ ok: true });
 
         // 清除可能存在的认证cookie
@@ -88,19 +137,20 @@ export async function POST(req: NextRequest) {
         return response;
       }
 
-      const { password } = await req.json();
+      const password = body?.password;
       if (typeof password !== 'string') {
         return NextResponse.json({ error: '密码不能为空' }, { status: 400 });
       }
 
       if (password !== envPassword) {
-        return NextResponse.json(
-          { ok: false, error: '密码错误' },
-          { status: 401 }
+        return (
+          recordFailure() ??
+          NextResponse.json({ ok: false, error: '密码错误' }, { status: 401 })
         );
       }
 
-      // 验证成功，设置认证cookie
+      // 验证成功，清掉失败计数并设置认证cookie
+      LOGIN_FAIL_LIMIT.reset(key);
       const response = NextResponse.json({ ok: true });
       const cookieValue = await generateAuthCookie(
         undefined,
@@ -123,7 +173,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 数据库 / redis 模式——校验用户名并尝试连接数据库
-    const { username, password } = await req.json();
+    const password = body?.password;
 
     if (!username || typeof username !== 'string') {
       return NextResponse.json({ error: '用户名不能为空' }, { status: 400 });
@@ -137,7 +187,8 @@ export async function POST(req: NextRequest) {
       username === process.env.USERNAME &&
       password === process.env.PASSWORD
     ) {
-      // 验证成功，设置认证cookie
+      // 验证成功，清掉失败计数并设置认证cookie
+      LOGIN_FAIL_LIMIT.reset(key);
       const response = NextResponse.json({ ok: true });
       const cookieValue = await generateAuthCookie(
         username,
@@ -158,7 +209,10 @@ export async function POST(req: NextRequest) {
 
       return response;
     } else if (username === process.env.USERNAME) {
-      return NextResponse.json({ error: '用户名或密码错误' }, { status: 401 });
+      return (
+        recordFailure() ??
+        NextResponse.json({ error: '用户名或密码错误' }, { status: 401 })
+      );
     }
 
     const config = await getConfig();
@@ -171,13 +225,14 @@ export async function POST(req: NextRequest) {
     try {
       const pass = await db.verifyUser(username, password);
       if (!pass) {
-        return NextResponse.json(
-          { error: '用户名或密码错误' },
-          { status: 401 }
+        return (
+          recordFailure() ??
+          NextResponse.json({ error: '用户名或密码错误' }, { status: 401 })
         );
       }
 
-      // 验证成功，设置认证cookie
+      // 验证成功，清掉失败计数并设置认证cookie
+      LOGIN_FAIL_LIMIT.reset(key);
       const response = NextResponse.json({ ok: true });
       const cookieValue = await generateAuthCookie(
         username,
