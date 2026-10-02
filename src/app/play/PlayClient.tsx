@@ -14,6 +14,7 @@ import DanmakuSelector from '@/components/DanmakuSelector';
 import EpisodeSelector from '@/components/EpisodeSelector';
 import PageLayout from '@/components/PageLayout';
 
+import { HotkeyHelp } from './components/HotkeyHelp';
 import { PlaybackNetworkBar } from './components/PlaybackNetworkBar';
 import { ErrorView, LoadingView, VideoLoadingMask } from './components/PlayStatusView';
 import { VideoDetailPanel } from './components/VideoDetailPanel';
@@ -124,6 +125,7 @@ export default function PlayClient() {
         {/* 顶部操作栏：返回上一级（不想看了直接退出，不用回主页重新找） */}
         <div className='flex items-center gap-3 px-3 pt-3 pb-2 lg:px-0 lg:pt-4'>
           <BackButton showLabel />
+          <HotkeyHelp />
           {videoTitle && (
             <span className='truncate text-sm text-gray-500 dark:text-gray-400'>
               {videoTitle}

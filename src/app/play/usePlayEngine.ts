@@ -61,6 +61,7 @@ import {
 import { describeHlsError, PlaybackRecovery } from '@/lib/playback-recovery';
 import { getDefaultPlaybackSaveInterval } from '@/lib/playback-settings';
 import { DEFAULT_VOLUME, loadVolume, saveVolume } from '@/lib/playback-volume';
+import { PLAYER_HOTKEY_ENABLED } from '@/lib/player-hotkeys';
 import {
   buildScreenshotFilename,
   sanitizeFilenamePart,
@@ -2649,7 +2650,9 @@ export function usePlayEngine() {
         airplay: true,
         theme: '#22c55e',
         lang: 'zh-cn',
-        hotkey: false,
+        // 4.5.6 起开启键盘操作（空格/方向键等），仅在播放器区域内生效。
+        // 注意 ArtPlayer 5 的这个选项只接受 boolean，传对象会直接创建失败。
+        hotkey: PLAYER_HOTKEY_ENABLED,
         fastForward: true,
         autoOrientation: true,
         lock: true,

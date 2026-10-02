@@ -11,6 +11,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.5.6",
+    date: "2026-10-03",
+    added: [
+    "播放器快捷键: 空格播放暂停、方向键快进快退与音量、Esc 退全屏, 顶部新增「快捷键」说明弹层",
+    "PWA 离线壳: 静态资源走缓存、断网时给出离线提示页, 站点可添加到桌面独立打开; 开发环境不注册以免影响热更新"
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+    "Service Worker 只在支持边下边存的浏览器上注册, 现改为生产环境无条件注册"
+    ]
+  },
+  {
     version: "4.5.5",
     date: "2026-10-03",
     added: [
