@@ -48,6 +48,9 @@ function HomeClient() {
     BangumiCalendarData[]
   >([]);
   const [loading, setLoading] = useState(true);
+  // 新番放送单独一个加载态：它的数据源（番组tv 浏览器直连）不可达时
+  // 只能让这一块没内容，不能拖住整页的豆瓣热门区块
+  const [bangumiLoading, setBangumiLoading] = useState(true);
   const { announcement } = useSite();
   const { startLoading } = useNavigationLoading();
 
@@ -162,23 +165,44 @@ function HomeClient() {
   const hasAutoRefreshedRef = useRef(false);
 
   useEffect(() => {
+    let cancelled = false;
+
     const fetchRecommendData = async () => {
+      setLoading(true);
+      setBangumiLoading(true);
+
+      // 检查是否启用简洁模式
+      const savedSimpleMode = localStorage.getItem('simpleMode');
+      const isSimpleMode = savedSimpleMode ? JSON.parse(savedSimpleMode) : false;
+
+      if (isSimpleMode) {
+        // 简洁模式下跳过豆瓣数据获取
+        setLoading(false);
+        setBangumiLoading(false);
+        return;
+      }
+
+      // 新番放送（番组tv 浏览器直连、无代理）**独立加载**：
+      // 它不可达时只让这一块没有内容，不牵连下面三个豆瓣热门区块。
+      // 以前它和豆瓣请求共用一个 Promise.all，一旦它挂住/失败，
+      // 三个热门区块的数据会被整包丢弃 —— 表现是「首页没海报、分类页正常」。
+      GetBangumiCalendarData()
+        .then((data) => {
+          if (cancelled) return;
+          setBangumiCalendarData(data);
+        })
+        .catch((error) => {
+          console.error('获取新番放送数据失败:', error);
+        })
+        .finally(() => {
+          if (!cancelled) setBangumiLoading(false);
+        });
+
       try {
-        setLoading(true);
-
-        // 检查是否启用简洁模式
-        const savedSimpleMode = localStorage.getItem('simpleMode');
-        const isSimpleMode = savedSimpleMode ? JSON.parse(savedSimpleMode) : false;
-
-        if (isSimpleMode) {
-          // 简洁模式下跳过豆瓣数据获取
-          setLoading(false);
-          return;
-        }
-
-        // 并行获取热门电影、热门剧集和热门综艺
-        const [moviesData, tvShowsData, varietyShowsData, bangumiCalendarData] =
-          await Promise.all([
+        // 三个豆瓣热门区块并行获取，同样互不牵连（allSettled：
+        // 某一组失败只少一块内容，不会让另外两组跟着空）
+        const [moviesResult, tvShowsResult, varietyShowsResult] =
+          await Promise.allSettled([
             getDoubanCategories({
               kind: 'movie',
               category: '热门',
@@ -186,30 +210,34 @@ function HomeClient() {
             }),
             getDoubanCategories({ kind: 'tv', category: 'tv', type: 'tv' }),
             getDoubanCategories({ kind: 'tv', category: 'show', type: 'show' }),
-            GetBangumiCalendarData(),
           ]);
+        if (cancelled) return;
 
-        if (moviesData.code === 200) {
-          setHotMovies(moviesData.list);
+        if (moviesResult.status === 'fulfilled' && moviesResult.value?.code === 200) {
+          setHotMovies(moviesResult.value.list);
         }
 
-        if (tvShowsData.code === 200) {
-          setHotTvShows(tvShowsData.list);
+        if (tvShowsResult.status === 'fulfilled' && tvShowsResult.value?.code === 200) {
+          setHotTvShows(tvShowsResult.value.list);
         }
 
-        if (varietyShowsData.code === 200) {
-          setHotVarietyShows(varietyShowsData.list);
+        if (
+          varietyShowsResult.status === 'fulfilled' &&
+          varietyShowsResult.value?.code === 200
+        ) {
+          setHotVarietyShows(varietyShowsResult.value.list);
         }
-
-        setBangumiCalendarData(bangumiCalendarData);
       } catch (error) {
         console.error('获取推荐数据失败:', error);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     fetchRecommendData();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // 处理收藏数据更新的函数
@@ -1077,7 +1105,7 @@ function HomeClient() {
                       </Link>
                     </div>
                     <ScrollableRow>
-                      {loading
+                      {bangumiLoading
                         ? // 加载状态显示灰色占位数据
                           Array.from({ length: 8 }).map((_, index) => (
                             <div
@@ -1110,6 +1138,16 @@ function HomeClient() {
                               bangumiCalendarData.find(
                                 (item) => item.weekday.en === currentWeekday
                               )?.items || [];
+
+                            // 番组tv 直连不通时这里是空的：给一句人话，
+                            // 而不是留一条空荡荡的横排让人以为页面坏了
+                            if (todayAnimes.length === 0) {
+                              return (
+                                <p className='py-6 text-sm text-gray-500 dark:text-gray-400'>
+                                  暂无今日番剧数据（番组tv 接口暂不可达）
+                                </p>
+                              );
+                            }
 
                             return todayAnimes.map((anime, index) => (
                               <div
