@@ -3,6 +3,7 @@
 'use client';
 
 import {
+  BarChart3,
   Cat,
   ChevronDown,
   Clapperboard,
@@ -106,6 +107,7 @@ const SideNav = () => {
   const isHomeActive = pathname === '/';
   const isSearchActive = pathname.startsWith('/search');
   const isRankingActive = pathname.startsWith('/ranking');
+  const isStatsActive = pathname.startsWith('/stats');
   const isLibraryActive = pathname.startsWith('/douban');
   const isPrivateLibraryActive = pathname.startsWith('/library');
 
@@ -314,6 +316,21 @@ const SideNav = () => {
             >
               <Trophy className='h-5 w-5 flex-shrink-0' />
               <span className='sidenav-expanded-only'>榜单</span>
+            </Link>
+
+            {/* 4.5.8 观影统计 */}
+            <Link
+              href='/stats'
+              onClick={startLoading}
+              className={`${ITEM_CLASS} ${
+                isStatsActive
+                  ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                  : ''
+              }`}
+              title='观影统计'
+            >
+              <BarChart3 className='h-5 w-5 flex-shrink-0' />
+              <span className='sidenav-expanded-only'>观影统计</span>
             </Link>
           </>
         )}

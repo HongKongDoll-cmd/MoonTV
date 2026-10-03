@@ -11,6 +11,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.5.8",
+    date: "2026-10-03",
+    added: [
+    "观影统计页: 看过多少部、累计集数、估算时长、看完与在追数量, 以及每年看过、来源分布、看得最多与最近在看",
+    "侧边栏新增「观影统计」入口"
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "4.5.7",
     date: "2026-10-03",
     added: [
