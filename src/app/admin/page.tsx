@@ -87,6 +87,8 @@ interface SiteConfig {
   DoubanImageProxy: string;
   DisableYellowFilter: boolean;
   TVBoxEnabled?: boolean;
+  // 4.6.1 设置跨设备同步开关
+  LocalSettingsSyncMode?: 'on' | 'off';
   TVBoxPassword?: string;
   DanmakuApiBaseUrl?: string;
   PlaybackSaveInterval?: number;
@@ -2239,6 +2241,8 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
     DoubanImageProxy: '',
     DisableYellowFilter: false,
     TVBoxEnabled: false,
+    // 默认开启设置同步（4.6.1）
+    LocalSettingsSyncMode: 'on',
     TVBoxPassword: '',
     DanmakuApiBaseUrl: '',
     PlaybackSaveInterval: PLAYBACK_SAVE_DEFAULT_SECONDS,
@@ -2333,6 +2337,9 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
         DoubanImageProxy: config.SiteConfig.DoubanImageProxy || '',
         DisableYellowFilter: config.SiteConfig.DisableYellowFilter || false,
         TVBoxEnabled: config.SiteConfig.TVBoxEnabled || false,
+        // 未配置时按「开启」处理（与 config.ts 的默认值一致）
+        LocalSettingsSyncMode:
+          config.SiteConfig.LocalSettingsSyncMode === 'off' ? 'off' : 'on',
         TVBoxPassword: config.SiteConfig.TVBoxPassword || '',
         DanmakuApiBaseUrl:
           config.SiteConfig.DanmakuApiBaseUrl ||
@@ -3121,6 +3128,54 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
           </div>
           <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
             开启后可在 TVBox 中使用本站数据，访问需携带密码。
+          </p>
+        </div>
+
+        {/* 4.6.1 设置跨设备同步开关 */}
+        <div>
+          <div className='flex items-center justify-between'>
+            <label
+              className={`block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${isLocalStorage ? 'opacity-50' : ''}`}
+            >
+              跨设备同步设置
+              {isLocalStorage && (
+                <span className='ml-2 text-xs text-gray-500 dark:text-gray-400'>
+                  (本地模式无服务端存储，无法同步)
+                </span>
+              )}
+            </label>
+            <button
+              type='button'
+              data-testid='admin-settings-sync-toggle'
+              onClick={() =>
+                !isLocalStorage &&
+                setSiteSettings((prev) => ({
+                  ...prev,
+                  LocalSettingsSyncMode:
+                    prev.LocalSettingsSyncMode === 'off' ? 'on' : 'off',
+                }))
+              }
+              disabled={isLocalStorage}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${
+                isLocalStorage ? 'opacity-50 cursor-not-allowed' : ''
+              } ${
+                siteSettings.LocalSettingsSyncMode !== 'off'
+                  ? 'bg-green-600'
+                  : 'bg-gray-200 dark:bg-gray-700'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  siteSettings.LocalSettingsSyncMode !== 'off'
+                    ? 'translate-x-6'
+                    : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+          <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
+            开启后主题、侧边栏、影库视图、字幕与播放等偏好会自动同步到云端，
+            换设备或换浏览器登录后自动恢复。收藏与播放记录本就有服务端，不受影响。
           </p>
         </div>
 

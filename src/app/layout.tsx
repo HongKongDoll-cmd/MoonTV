@@ -21,6 +21,7 @@ import { SettingsSyncProvider } from '../components/SettingsSyncProvider';
 import { SiteProvider } from '../components/SiteProvider';
 import SubscriptionAutoUpdate from '../components/SubscriptionAutoUpdate';
 import { ThemeProvider } from '../components/ThemeProvider';
+import { UpdateNotificationBell } from '../components/UpdateNotificationBell';
 import UserOnlineUpdate from '../components/UserOnlineUpdate';
 
 export const runtime = 'edge';
@@ -150,6 +151,8 @@ export default async function RootLayout({
             <SiteProvider siteName={siteName} announcement={announcement}>
               <NavigationLoadingIndicator />
               <UserOnlineUpdate />
+              {/* 4.6.2 更新通知：与「用户在线更新」同组（全局状态类，不随页面重挂） */}
+              <UpdateNotificationBell />
               
               {/* 条件导航栏 - 根据路径自动判断是否显示 */}
               <ConditionalNav />

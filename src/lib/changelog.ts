@@ -11,6 +11,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.6.2",
+    date: "2026-10-03",
+    added: [
+    "更新通知铃铛: 追更剧有新集时在导航栏显示红点, 点开可看到更新详情并直接跳转播放",
+    "浏览器通知授权后, 有新集会弹一条系统通知(可关闭, 不授权也能用站内提示)",
+    "管理台新增「跨设备同步设置」开关, 可关掉用户的设置同步"
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "4.6.1",
     date: "2026-10-03",
     added: [
