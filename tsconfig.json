@@ -26,5 +26,6 @@
     ]
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "//exclude": "node_modules 要写通配：pnpm 把真实包放在 node_modules/.pnpm/<pkg>/node_modules/ 下，只排除一层无效，于是 include 的 **/*.ts 会扫进依赖的 .d.ts",
+  "exclude": ["node_modules", "**/node_modules", "node_modules.old", "node_modules.partial", ".patch-tmp"]
 }
