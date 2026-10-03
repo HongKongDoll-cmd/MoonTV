@@ -61,3 +61,9 @@ public/workbox-*.js
 public/workbox-*.js.map
 public/worker-*.js
 public/sw.js.map
+docs/p422-player-enhancements.patch
+docs/p423-theme-palette.patch
+docs/p424-play-view-state.patch
+docs/p4244-theme-palette-fix.patch
+docs/fixtures/today-updated-sample.json
+docs/tools/check-notifications.mjs
