@@ -1,6 +1,7 @@
 /* eslint-disable no-console, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
 import { AdminConfig } from './admin.types';
+import type { SyncedSetting } from './settings-sync';
 import {
   Favorite,
   Following,
@@ -745,6 +746,85 @@ export class D1Storage implements IStorage {
       )
       .bind(userId, source, id)
       .run();
+  }
+
+
+  // ---------------------------------------------------------------------------
+  // 设置跨设备同步（4.6.1）
+  // ---------------------------------------------------------------------------
+
+  /**
+   * 注意：这里的「读不到就返回空」是**刻意的降级**，不是掩盖错误。
+   *
+   * 老部署的 D1 库里没有 user_settings 表（d1-init.sql 是要手动执行的），
+   * 若在这里抛错，整个 /api/user-settings 就会 500，进而让**每个页面**都报错。
+   * 同步失败可以接受，页面不可用不行。
+   */
+  async getUserSettings(userName: string): Promise<SyncedSetting[]> {
+    const userId = await this.getUserId(userName);
+    if (!userId) return [];
+
+    let results: { results?: unknown[] };
+    try {
+      results = await this.db
+        .prepare('SELECT setting_key, setting_value, updated_at FROM user_settings WHERE user_id = ?')
+        .bind(userId)
+        .all();
+    } catch (error) {
+      // 缺表（老库未执行 d1-init.sql）→ 视为「还没同步过」
+      console.warn('读取 user_settings 失败（可能未执行 d1-init.sql）:', error);
+      return [];
+    }
+
+    const rows = (results?.results ?? []) as Array<{
+      setting_key?: unknown;
+      setting_value?: unknown;
+      updated_at?: unknown;
+    }>;
+    return rows
+      .filter((r) => typeof r.setting_key === 'string' && typeof r.setting_value === 'string')
+      .map((r) => ({
+        key: r.setting_key as string,
+        value: r.setting_value as string,
+        // 秒级时间戳统一成毫秒，与其它存储实现保持一致
+        updatedAt: Number(r.updated_at ?? 0) * 1000,
+      }));
+  }
+
+  async setUserSettings(
+    userName: string,
+    settings: SyncedSetting[]
+  ): Promise<void> {
+    const valid = settings.filter(
+      (item) =>
+        item &&
+        typeof item.key === 'string' &&
+        typeof item.value === 'string' &&
+        typeof item.updatedAt === 'number'
+    );
+    if (valid.length === 0) return;
+
+    const userId = await this.ensureUser(userName);
+    try {
+      // 整体覆盖：先清该用户的旧副本，再写新的。
+      // 逐项 UPSERT 会留下「云端已删除、本地还在」的幽灵项。
+      for (const item of valid) {
+        await this.db
+          .prepare(
+            `INSERT INTO user_settings (user_id, setting_key, setting_value, updated_at)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(user_id, setting_key)
+             DO UPDATE SET
+               setting_value = excluded.setting_value,
+               updated_at = excluded.updated_at`
+          )
+          .bind(userId, item.key, item.value, Math.floor(item.updatedAt / 1000))
+          .run();
+      }
+    } catch (error) {
+      // 同上：缺表时静默失败，不让接口 500
+      console.warn('写入 user_settings 失败（可能未执行 d1-init.sql）:', error);
+    }
   }
 
   async getAllSkipConfigs(

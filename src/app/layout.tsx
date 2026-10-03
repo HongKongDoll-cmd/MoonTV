@@ -17,6 +17,7 @@ import { GlobalErrorIndicator } from '../components/GlobalErrorIndicator';
 import { NavigationLoadingIndicator } from '../components/NavigationLoadingIndicator';
 import { NavigationLoadingProvider } from '../components/NavigationLoadingProvider';
 import ServiceWorkerRegistration from '../components/ServiceWorkerRegistration';
+import { SettingsSyncProvider } from '../components/SettingsSyncProvider';
 import { SiteProvider } from '../components/SiteProvider';
 import SubscriptionAutoUpdate from '../components/SubscriptionAutoUpdate';
 import { ThemeProvider } from '../components/ThemeProvider';
@@ -144,6 +145,8 @@ export default async function RootLayout({
         >
           <ServiceWorkerRegistration />
           <NavigationLoadingProvider>
+            {/* 4.6.1 设置跨设备同步：全站只挂一次，页面切进来时已完成拉取 */}
+            <SettingsSyncProvider>
             <SiteProvider siteName={siteName} announcement={announcement}>
               <NavigationLoadingIndicator />
               <UserOnlineUpdate />
@@ -169,6 +172,7 @@ export default async function RootLayout({
               <GlobalErrorIndicator />
               {autoUpdateEnabled && <SubscriptionAutoUpdate />}
             </SiteProvider>
+            </SettingsSyncProvider>
           </NavigationLoadingProvider>
         </ThemeProvider>
       </body>

@@ -21,6 +21,8 @@ export interface AdminConfig {
     PlaybackSaveInterval?: number;
     // 站点级私人影库连接（含令牌，只存服务端，不下发浏览器）
     MediaLibrary?: MediaLibraryConfig | null;
+    // 设置跨设备同步开关（4.6.1）。默认开启；设为 false 时所有用户只存本地。
+    LocalSettingsSyncMode?: 'on' | 'off';
   };
   UserConfig: {
     AllowRegister: boolean;

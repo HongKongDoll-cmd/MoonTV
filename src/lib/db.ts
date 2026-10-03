@@ -1,6 +1,7 @@
 /* eslint-disable no-console, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
 import { AdminConfig } from './admin.types';
+import type { SyncedSetting } from './settings-sync';
 import { D1Storage } from './d1.db';
 import { KvrocksStorage } from './kvrocks.db';
 import { RedisStorage } from './redis.db';
@@ -267,6 +268,27 @@ export class DbManager {
       return (this.storage as any).getAllSkipConfigs(userName);
     }
     return {};
+  }
+
+  // ---------- 设置跨设备同步（4.6.1） ----------
+  //
+  // 委托给底层 storage；用 `as any` + typeof 判定的写法与上面一致，
+  // 好处是老存储实现（localstorage 模式没有 IStorage）不会因此崩掉 ——
+  // 拿不到就返回空副本，客户端视为「还没同步过」。
+  async getUserSettings(userName: string): Promise<SyncedSetting[]> {
+    if (typeof (this.storage as any).getUserSettings === 'function') {
+      return (this.storage as any).getUserSettings(userName);
+    }
+    return [];
+  }
+
+  async setUserSettings(
+    userName: string,
+    settings: SyncedSetting[]
+  ): Promise<void> {
+    if (typeof (this.storage as any).setUserSettings === 'function') {
+      await (this.storage as any).setUserSettings(userName, settings);
+    }
   }
 
   // ---------- “今日新更” ----------

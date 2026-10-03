@@ -97,6 +97,17 @@ CREATE TABLE IF NOT EXISTS skip_configs (
 );
 
 -- 创建“今日新更”记录表（每个用户一行，整份记录以 JSON 文本存储，保留一天、跨设备跟随账号）
+-- 设置跨设备同步（4.6.1）：整份设置副本存一行，key 为云端键名
+CREATE TABLE IF NOT EXISTS user_settings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  setting_key TEXT NOT NULL,
+  setting_value TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE(user_id, setting_key),
+  FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
 CREATE TABLE IF NOT EXISTS today_updated (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL UNIQUE,

@@ -1,4 +1,5 @@
 import { AdminConfig } from './admin.types';
+import type { SyncedSetting } from './settings-sync';
 import type { SubtitleTrack } from './subtitle';
 
 // 播放记录数据结构
@@ -104,6 +105,15 @@ export interface IStorage {
   ): Promise<void>;
   deleteSkipConfig(userName: string, source: string, id: string): Promise<void>;
   getAllSkipConfigs(userName: string): Promise<{ [key: string]: SkipConfig }>;
+
+  // 设置跨设备同步（4.6.1）
+  //
+  // 存的是**偏好**（主题、视图、字幕字号等），不是收藏/播放记录那类数据 ——
+  // 后者已有各自的存储方法，重复同步会与服务端冲突。
+  // 实现约定：存储不可用（缺表、无权限）时**返回空数组而不是抛错**，
+  // 宁可「这次没同步上」，也不要让整个页面报错。
+  getUserSettings(userName: string): Promise<SyncedSetting[]>;
+  setUserSettings(userName: string, settings: SyncedSetting[]): Promise<void>;
 
   // “今日新更”相关（保留一天、跟随账号跨设备）
   getTodayUpdated(userName: string): Promise<TodayUpdatedRecord | null>;

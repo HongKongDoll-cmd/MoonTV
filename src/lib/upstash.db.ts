@@ -3,6 +3,7 @@
 import { Redis } from '@upstash/redis';
 
 import { AdminConfig } from './admin.types';
+import type { SyncedSetting } from './settings-sync';
 import {
   Favorite,
   Following,
@@ -389,6 +390,56 @@ export class UpstashRedisStorage implements IStorage {
   ): Promise<void> {
     await withRetry(() =>
       this.client.del(this.skipConfigKey(userName, source, id))
+    );
+  }
+
+
+  // ---------------------------------------------------------------------------
+  // 设置跨设备同步（4.6.1）
+  // ---------------------------------------------------------------------------
+
+  private userSettingsKey(userName: string) {
+    return `u:${userName}:settings`;
+  }
+
+  /**
+   * 整个设置副本存**一个** key，而不是每项一个 —— 偏好项少（十几条），
+   * 一次读写省掉 N 次往返，也便于整体覆盖（云端有、本地没有的项直接消失）。
+   */
+  async getUserSettings(userName: string): Promise<SyncedSetting[]> {
+    const raw = await withRetry(() =>
+      this.client.get(this.userSettingsKey(userName))
+    );
+    if (!raw) return [];
+    try {
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (!Array.isArray(parsed)) return [];
+      // 逐项过滤：旧客户端或手工构造可能塞进非 SyncedSetting 的东西
+      return parsed.filter(
+        (item) =>
+          item &&
+          typeof item.key === 'string' &&
+          typeof item.value === 'string'
+      );
+    } catch {
+      // 数据损坏当没有，宁可不同步也不要让页面崩
+      return [];
+    }
+  }
+
+  async setUserSettings(
+    userName: string,
+    settings: SyncedSetting[]
+  ): Promise<void> {
+    const valid = settings.filter(
+      (item) =>
+        item &&
+        typeof item.key === 'string' &&
+        typeof item.value === 'string' &&
+        typeof item.updatedAt === 'number'
+    );
+    await withRetry(() =>
+      this.client.set(this.userSettingsKey(userName), valid)
     );
   }
 

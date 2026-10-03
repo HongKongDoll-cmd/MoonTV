@@ -11,6 +11,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.6.1",
+    date: "2026-10-03",
+    added: [
+    "设置跨设备同步: 主题、侧边栏、影库视图、字幕与播放偏好等自动同步到云端, 换设备自动恢复",
+    "管理员可在后台关闭设置同步(默认开启)"
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "4.6.0",
     date: "2026-10-03",
     added: [
