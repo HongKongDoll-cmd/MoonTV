@@ -11,6 +11,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.5.9",
+    date: "2026-10-03",
+    added: [
+    "播放器右下浮出「跳过片头」按钮, 点一次即记住该集片头长度并自动跳过",
+    "移动端底部导航补齐影库、榜单、观影统计与下载管理(带任务角标)入口"
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "4.5.8",
     date: "2026-10-03",
     added: [

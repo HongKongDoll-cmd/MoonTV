@@ -2,10 +2,27 @@
 
 'use client';
 
-import { Cat, Clapperboard, Clover, Compass, Film, Home, Search, Tv } from 'lucide-react';
+import {
+  BarChart3,
+  Cat,
+  Clapperboard,
+  Clover,
+  Compass,
+  Download,
+  Film,
+  FolderOpen,
+  Home,
+  Search,
+  Trophy,
+  Tv,
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { memo, useEffect, useState } from 'react';
+
+import { useDownloadTaskCount } from '@/hooks/useDownloadTaskCount';
+
+import DownloadManagerModal from '@/components/DownloadManager';
 
 import { useNavigationLoading } from './NavigationLoadingProvider';
 
@@ -26,6 +43,8 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
   const [navItems] = useState([
     { icon: Home, label: '首页', href: '/' },
     { icon: Search, label: '搜索', href: '/search' },
+    // 4.5.9：手机端补齐桌面侧边栏已有的三个入口（影库/榜单/观影统计）
+    { icon: FolderOpen, label: '影库', href: '/library' },
     {
       icon: Film,
       label: '电影',
@@ -56,11 +75,18 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
       label: '综艺',
       href: '/douban?type=show',
     },
+    { icon: Trophy, label: '榜单', href: '/ranking' },
+    { icon: BarChart3, label: '观影统计', href: '/stats' },
   ]);
+
+  // 下载任务角标（与桌面侧边栏同一个 hook，SSR 阶段不渲染）
+  const downloadTaskCount = useDownloadTaskCount();
 
   // 检查是否启用简洁模式 - 使用状态管理
   const [simpleMode, setSimpleMode] = useState(false);
   const [isClient, setIsClient] = useState(false);
+  // 4.5.9：下载管理弹窗
+  const [downloadOpen, setDownloadOpen] = useState(false);
 
   useEffect(() => {
     setIsClient(true);
@@ -147,7 +173,37 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
             </li>
           );
         })}
+
+        {/* 4.5.9：下载管理是弹窗（不是路由），所以这里单独放一个按钮，
+            跟桌面侧边栏一致；角标用同一个 hook。 */}
+        {isClient && (
+          <li className='flex-shrink-0' style={{ width: '20vw', minWidth: '20vw' }}>
+            <button
+              type='button'
+              onClick={() => setDownloadOpen(true)}
+              className='relative flex w-full h-14 flex-col items-center justify-center gap-1 text-xs'
+              aria-label='下载管理'
+            >
+              <span className='relative'>
+                <Download className='h-6 w-6 text-gray-500 dark:text-gray-400' />
+                {downloadTaskCount > 0 && (
+                  <span className='absolute -top-1.5 -right-2.5 min-w-[1.1rem] rounded-full bg-red-500 px-1 text-center text-[10px] leading-[1.1rem] text-white'>
+                    {downloadTaskCount > 99 ? '99+' : downloadTaskCount}
+                  </span>
+                )}
+              </span>
+              <span className='text-gray-600 dark:text-gray-300'>下载</span>
+            </button>
+          </li>
+        )}
       </ul>
+
+      {downloadOpen && (
+        <DownloadManagerModal
+          isOpen={downloadOpen}
+          onClose={() => setDownloadOpen(false)}
+        />
+      )}
     </nav>
   );
 };

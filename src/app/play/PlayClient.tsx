@@ -5,6 +5,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
+import { buildIntroSkipStorageKey } from '@/lib/intro-skip';
 import { readOpenListConfigFromCookie } from '@/lib/openlist';
 
 import AddDownloadModal from '@/components/AddDownloadModal';
@@ -15,6 +16,7 @@ import EpisodeSelector from '@/components/EpisodeSelector';
 import PageLayout from '@/components/PageLayout';
 
 import { HotkeyHelp } from './components/HotkeyHelp';
+import { IntroSkipButton } from './components/IntroSkipButton';
 import { PlaybackNetworkBar } from './components/PlaybackNetworkBar';
 import { ErrorView, LoadingView, VideoLoadingMask } from './components/PlayStatusView';
 import { SubtitlePanel } from './components/SubtitlePanel';
@@ -174,6 +176,17 @@ export default function PlayClient() {
                     onClose={handleDanmakuClose}
                   />
                 )}
+
+                {/* 跳过片头（4.5.9）：只在片头区间出现，越过即消失。
+                    记 key 用 source+id，换源/换集互不干扰。 */}
+                <IntroSkipButton
+                  containerRef={artRef}
+                  configuredIntroTime={skipConfig.intro_time}
+                  storageKey={buildIntroSkipStorageKey(
+                    currentSource,
+                    `${currentId}#${currentEpisodeIndex}`
+                  )}
+                />
 
                 {/* 换源加载蒙层 */}
                 <VideoLoadingMask
