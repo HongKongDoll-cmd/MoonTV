@@ -22,7 +22,7 @@ export const changelog: ChangelogEntry[] = [
       // 无变更内容
     ],
     fixed: [
-      // 无修复内容
+    "管理台「跨设备同步设置」开关原先藏在 TVBox 区块内难以找到, 已移到「偏好设置同步」独立分组"
     ]
   },
   {
