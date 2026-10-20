@@ -11,6 +11,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.6.5",
+    date: "2026-10-21",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+    "修复全屏时缓存管理与弹幕设置弹窗不显示: 改为挂载到全屏元素内部",
+    "修复全屏时换源加载遮罩一并消失的问题",
+    "修复顶部操作层与控制栏显隐不同步: 改为跟随播放器控制栏节奏"
+    ]
+  },
+  {
     version: "4.6.4",
     date: "2026-10-21",
     added: [

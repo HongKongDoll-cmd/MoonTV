@@ -4,6 +4,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import { buildIntroSkipStorageKey } from '@/lib/intro-skip';
 import { readOpenListConfigFromCookie } from '@/lib/openlist';
@@ -24,13 +25,6 @@ import { VideoDetailPanel } from './components/VideoDetailPanel';
 import { usePlayEngine } from './usePlayEngine';
 
 /**
- * 播放中顶部操作层淡出前的空闲时长（毫秒）。
- *
- * 太短会让用户刚点一下就消失，太长又挡画面；2.5s 与主流播放器一致。
- */
-const PLAYER_CONTROLS_IDLE_MS = 2500;
-
-/**
  * 播放页客户端组件。
  *
  * 仅负责：调用 {@link usePlayEngine} 获取状态/回调，并按视图分层渲染。
@@ -47,84 +41,59 @@ export default function PlayClient() {
   }, []);
 
   /**
-   * 播放中自动淡出顶部操作层（4.6.4）。
+   * 顶部操作层（返回/标题/字幕/快捷键）的显隐 —— **跟随播放器控制栏**（4.6.5）。
    *
-   * 4.6.3 把返回按钮、标题、字幕面板、快捷键帮助嵌进了播放器右上角，
-   * 但它们常驻会一直挡着画面。这里按播放器的通行交互做：
-   * 播放中且鼠标空闲 2.5s → 淡出；移动鼠标 / 触摸 / seek → 立刻回来；
-   * 暂停、加载中、弹幕选择器或缓存面板打开时始终显示（那些时候用户正要操作）。
+   * 4.6.4 曾自己维护一套"鼠标空闲 2.5s 就淡出"的计时器，结果和控制栏
+   * （含进度条）各按各的节奏走：会出现"控制栏还在但返回按钮已经没了"、
+   * 或者反之的割裂感，暂停/悬停控制栏时的行为也对不齐。
    *
-   * ⚠️ video 元素是 ArtPlayer **异步**创建的，所以用轮询等它出现再绑事件
-   * （与 IntroSkipButton 同一套做法），不能假设 effect 跑完时 video 已在。
+   * ArtPlayer 把控制栏的显隐状态写在 `$player` 的 `art-hover` class 上：
+   *   - 播放器内移动鼠标 / 点击 → 加上 art-hover（显示）
+   *   - 播放中空闲超过 CONTROL_HIDE_TIME(3s) → 移除（隐藏）
+   *   - 暂停中、鼠标悬在底部控制栏上 → 不移除（常驻）
+   * 所以这里用 MutationObserver 观察这个 class，让操作层与控制栏**完全同步**，
+   * 不再自建计时器，也不必去猜它的时长。
+   *
+   * ⚠️ 播放器是异步构造的，用轮询等 `$player` 出现再 observe
+   * （与 IntroSkipButton 同一套做法）；观测范围限定 `attributeFilter: ['class']`，
+   * 否则播放进度的 style 变化会把回调刷爆。
    */
   const [controlsVisible, setControlsVisible] = useState(true);
   useEffect(() => {
-    let video: HTMLVideoElement | null = null;
-    let idleTimer: number | null = null;
+    let observer: MutationObserver | null = null;
     let pollTimer: number | null = null;
-    let lastWakeAt = 0;
 
-    const clearIdle = () => {
-      if (idleTimer !== null) {
-        window.clearTimeout(idleTimer);
-        idleTimer = null;
-      }
-    };
+    const start = (): boolean => {
+      const container = artRef.current;
+      if (!container) return false;
 
-    const scheduleIdle = () => {
-      clearIdle();
-      idleTimer = window.setTimeout(() => {
-        if (video && !video.paused) setControlsVisible(false);
-      }, PLAYER_CONTROLS_IDLE_MS);
-    };
+      const readHover = () => {
+        // 不假设 art-hover 具体挂在哪个元素上，容器内有人带这个 class 就算显示
+        setControlsVisible(!!container.querySelector('.art-hover'));
+      };
 
-    const wake = () => {
-      // 节流：鼠标移动事件频率很高，没必要每次都重置定时器
-      const now = Date.now();
-      if (now - lastWakeAt < 400) return;
-      lastWakeAt = now;
-      setControlsVisible(true);
-      scheduleIdle();
-    };
-
-    const onPause = () => {
-      setControlsVisible(true);
-      clearIdle();
-    };
-
-    const onPlay = () => {
-      setControlsVisible(true);
-      scheduleIdle();
-    };
-
-    const bindVideo = (): boolean => {
-      video = artRef.current?.querySelector<HTMLVideoElement>('video') ?? null;
-      if (!video) return false;
-      video.addEventListener('play', onPlay);
-      video.addEventListener('pause', onPause);
-      video.addEventListener('seeking', wake);
+      readHover();
+      observer = new MutationObserver(readHover);
+      observer.observe(container, {
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class'],
+      });
       return true;
     };
 
-    pollTimer = window.setInterval(() => {
-      if (bindVideo()) {
-        if (pollTimer !== null) window.clearInterval(pollTimer);
-        pollTimer = null;
-      }
-    }, 500);
-
-    const container = artRef.current;
-    container?.addEventListener('mousemove', wake);
-    container?.addEventListener('touchstart', wake);
+    if (!start()) {
+      pollTimer = window.setInterval(() => {
+        if (start() && pollTimer !== null) {
+          window.clearInterval(pollTimer);
+          pollTimer = null;
+        }
+      }, 500);
+    }
 
     return () => {
+      observer?.disconnect();
       if (pollTimer !== null) window.clearInterval(pollTimer);
-      clearIdle();
-      video?.removeEventListener('play', onPlay);
-      video?.removeEventListener('pause', onPause);
-      video?.removeEventListener('seeking', wake);
-      container?.removeEventListener('mousemove', wake);
-      container?.removeEventListener('touchstart', wake);
     };
   }, []);
 
@@ -191,6 +160,38 @@ export default function PlayClient() {
     isVideoLoading ||
     showDanmakuSelector ||
     showCacheManager;
+
+  /**
+   * 弹窗（弹幕选择器 / 缓存管理）的挂载目标（4.6.5）。
+   *
+   * 为什么必须动态切：**Fullscreen API 会把 fullscreen 元素提升到 top layer
+   * 并盖住整个视口**，此时挂在 document.body 下的任何 fixed 弹窗都会被它
+   * 遮住 —— 只有 fullscreen 元素的**后代**才能显示在上面。
+   * 而 ArtPlayer 全屏的目标是 `template.$player`（播放器模板根节点），
+   * 不是我们写 JSX 的那个容器，所以"把弹窗放进播放器外层 div"并不够
+   * （4.6.3 正是这么做的，用户实测全屏时依然看不到）。
+   *
+   * 这里监听 fullscreenchange：
+   *   - 全屏中 → portal 到 `document.fullscreenElement`（即 $player）
+   *   - 否则   → portal 到 body（与改动前一致）
+   */
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    const update = () => {
+      const el = document.fullscreenElement ?? document.body;
+      setPortalTarget(el as HTMLElement);
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    update();
+    document.addEventListener('fullscreenchange', update);
+    // Safari 旧前缀
+    document.addEventListener('webkitfullscreenchange', update);
+    return () => {
+      document.removeEventListener('fullscreenchange', update);
+      document.removeEventListener('webkitfullscreenchange', update);
+    };
+  }, []);
 
   if (loading) {
     return (
@@ -280,19 +281,22 @@ export default function PlayClient() {
                   </div>
                 </div>
 
-                {/* 弹幕选择器 */}
-                {showDanmakuSelector && (
-                  <DanmakuSelector
-                    videoTitle={videoTitle}
-                    isVisible={showDanmakuSelector}
-                    currentEpisode={currentEpisodeIndex + 1}
-                    currentEpisodeTitle={
-                      detail?.episodes_titles?.[currentEpisodeIndex]
-                    }
-                    onSelect={handleDanmakuSelect}
-                    onClose={handleDanmakuClose}
-                  />
-                )}
+                {/* 弹幕选择器（4.6.5 改走 portal，全屏时才能显示在播放器上方） */}
+                {showDanmakuSelector &&
+                  portalTarget &&
+                  createPortal(
+                    <DanmakuSelector
+                      videoTitle={videoTitle}
+                      isVisible={showDanmakuSelector}
+                      currentEpisode={currentEpisodeIndex + 1}
+                      currentEpisodeTitle={
+                        detail?.episodes_titles?.[currentEpisodeIndex]
+                      }
+                      onSelect={handleDanmakuSelect}
+                      onClose={handleDanmakuClose}
+                    />,
+                    portalTarget
+                  )}
 
                 {/* 跳过片头（4.5.9）：只在片头区间出现，越过即消失。
                     记 key 用 source+id，换源/换集互不干扰。 */}
@@ -305,11 +309,23 @@ export default function PlayClient() {
                   )}
                 />
 
-                {/* 换源加载蒙层 */}
-                <VideoLoadingMask
-                  visible={isVideoLoading}
-                  stage={videoLoadingStage}
-                />
+                {/* 换源加载蒙层。
+                    全屏时外层容器不在 fullscreen 里，absolute 遮罩会跟着消失，
+                    用户换源/优选时看不到任何提示。这里全屏中改走 portal。 */}
+                {isFullscreen && portalTarget
+                  ? createPortal(
+                      <VideoLoadingMask
+                        visible={isVideoLoading}
+                        stage={videoLoadingStage}
+                      />,
+                      portalTarget
+                    )
+                  : (
+                    <VideoLoadingMask
+                      visible={isVideoLoading}
+                      stage={videoLoadingStage}
+                    />
+                  )}
 
                 {/* 弹幕加载提示 */}
                 {/* 弹幕加载提示。top-16 是为了避开上面的返回/标题操作层 ——
@@ -322,14 +338,17 @@ export default function PlayClient() {
                   </div>
                 )}
 
-                {/* 4.6.3 缓存管理弹窗挂进播放器容器。
-                    它原来是 PageLayout 层级的 fixed 元素，播放器全屏时被
-                    fullscreen 元素整个盖住，用户在全屏里点不开缓存管理。
-                    移到这里后 `fixed` 以播放器为包含块，全屏时照常弹出。 */}
-                <CacheManager
-                  isOpen={showCacheManager}
-                  onClose={() => setShowCacheManager(false)}
-                />
+                {/* 4.6.3 曾把它移进播放器外层容器，但 ArtPlayer 全屏的目标是
+                    template.$player，那个容器并不在 fullscreen 里，用户实测
+                    全屏时依然看不到。4.6.5 改为 portal 到 fullscreenElement。 */}
+                {portalTarget &&
+                  createPortal(
+                    <CacheManager
+                      isOpen={showCacheManager}
+                      onClose={() => setShowCacheManager(false)}
+                    />,
+                    portalTarget
+                  )}
               </div>
             </div>
 
