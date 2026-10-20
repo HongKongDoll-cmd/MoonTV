@@ -14,7 +14,7 @@ export const changelog: ChangelogEntry[] = [
     version: "4.6.4",
     date: "2026-10-21",
     added: [
-    // 无新增内容
+      // 无新增内容
     ],
     changed: [
     "预取并发 3 降为 2, 下一集预热改为播到 80% 才启动, 不再和播放抢带宽",
@@ -61,7 +61,7 @@ export const changelog: ChangelogEntry[] = [
       // 无变更内容
     ],
     fixed: [
-    "管理台「跨设备同步设置」开关原先藏在 TVBox 区块内难以找到, 已移到「偏好设置同步」独立分组"
+      // 无修复内容
     ]
   },
   {
