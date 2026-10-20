@@ -24,6 +24,7 @@ import {
   loadDanmakuFilterConfig,
   saveDanmakuFilterConfig,
 } from '@/lib/danmaku-filter';
+import { throttleDanmaku } from '@/lib/danmaku-throttle';
 import {
   deleteSkipConfig,
   generateStorageKey,
@@ -525,11 +526,20 @@ export function usePlayEngine() {
 
       // 二次确认插件实例仍在，且没被换集重建
       if (!danmukuPluginInstanceRef.current) return;
-      danmukuPluginInstanceRef.current.config({ danmuku: list });
+      // 4.6.3 限流：采集站一集常几千条，全量灌进去会掉帧、切集卡顿。
+      // 按秒 + 总量两级等距抽稀后再交给插件（保持时序，见 danmaku-throttle.ts）。
+      const throttled = throttleDanmaku(list);
+      if (!throttled.length) return;
+
+      danmukuPluginInstanceRef.current.config({ danmaku: throttled });
       await danmukuPluginInstanceRef.current.load();
 
       correctedDanmakuUrlRef.current = url;
-      console.log(`弹幕颜色已修正: ${list.length} 条`);
+      const dropped = list.length - throttled.length;
+      console.log(
+        `弹幕颜色已修正: ${throttled.length} 条` +
+          (dropped > 0 ? `（限流抽稀 ${dropped} 条）` : '')
+      );
     } catch (err) {
       console.warn('弹幕颜色修正失败，沿用插件原始解析:', err);
     }
@@ -1475,6 +1485,12 @@ export function usePlayEngine() {
       });
       danmukuPluginInstanceRef.current.load();
       setIsBlockAdChanged(false);
+      // 去广告重载后插件里又是**未抽稀的全量**，而 correctedDanmakuUrlRef
+      // 会挡住二次接管。这里清掉已修正标记并重新接管一遍，保证限流始终生效。
+      correctedDanmakuUrlRef.current = '';
+      if (lastDanmakuUrlRef.current) {
+        void applyCorrectedDanmaku(lastDanmakuUrlRef.current);
+      }
       return;
     }
     if (!autoDanmakuEnabled || !detail || !isDanmakuPluginReady) return;

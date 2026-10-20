@@ -11,6 +11,9 @@ export interface AdminConfig {
     DoubanProxy: string;
     DoubanImageProxyType: string;
     DoubanImageProxy: string;
+    // 番组tv 放送日历的数据代理地址（4.6.3）。留空 = 走站内 /api/bangumi/calendar。
+    // 仅在不把站内部署到公网、或想用自建反代时才需要填。
+    BangumiProxy?: string;
     DisableYellowFilter: boolean;
     // 弹幕接口配置
     DanmakuApiBaseUrl?: string;

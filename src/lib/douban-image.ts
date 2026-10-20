@@ -10,14 +10,20 @@
  *
  * 这里给出真正不同的候选，按「代价从低到高」排序：
  *
- * 1. `primaryUrl` —— 用户配置的方式（默认直连），不变；
- * 2. 自带服务端代理 `/api/image-proxy` —— 由服务器带豆瓣 Referer 去取，
- *    能治防盗链 403，且浏览器只访问自己域名；
+ * 1. `primaryUrl` —— 用户配置的方式；
+ * 2. 自带服务端代理 `/api/image-proxy` 或原图直连（谁是首选，另一个就是次选）；
  * 3. cmliussss 公共 CDN —— 只换主机名，能治 doubanio 直连被墙。
  *
- * 刻意**不改默认值**：直连能用时零额外开销（不走服务器、不依赖第三方）；
- * 只有在真的失败后才逐级兜底。改默认值反而会让服务器承担全部图片流量，
- * 且若服务器本身也到不了豆瓣，会比直连更糟。
+ * ## 4.6.3：默认从「直连」改为「全量走站内代理」
+ *
+ * 原来的默认是 direct，理由是「直连能用时零额外开销」。但实际部署里
+ * 豆瓣图直连失败率很高（被墙 / 防盗链），首页、搜索、详情大量破图，
+ * 用户反馈难看的比例高于服务器多扛的流量，因此**默认改为 server**：
+ * 所有豆瓣图首屏就走 `/api/image-proxy`，浏览器只访问自己域名。
+ * 想省服务器流量可在管理台把「豆瓣图片代理」改回 direct，
+ * 或用 `NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE=direct` 覆盖。
+ * 配套把 `/api/image-proxy` 的限流从 120 次/分提高到 600 次/分，
+ * 否则全量代理会先撞限流（那会比直连失败更糟）。
  *
  * 本模块**不 import 任何东西**，纯字符串处理，便于单测，也方便被
  * 客户端组件与服务端代码同时引用。
@@ -57,6 +63,11 @@ export function buildCmliussssUrl(url: string): string {
  * 不适合放进本模块）。非豆瓣图只返回 `primaryUrl` —— 别的源站不经豆瓣代理，
  * 也不该被塞进豆瓣 CDN。
  *
+ * 4.6.3 起默认改为**全量走站内代理**（`primaryUrl` 就是 `/api/image-proxy`）。
+ * 此时回退链要反过来：次选放**原图直连**（治服务器到不了豆瓣的情况），
+ * 再放公共 CDN。若仍按老顺序把代理地址再推一遍，第一级失败后第二级还是
+ * 同一个地址，等于白试一次。
+ *
  * 返回值去重且去掉空项，调用方从下标 1 开始逐级回退即可。
  */
 export function buildImageCandidates(
@@ -77,10 +88,20 @@ export function buildImageCandidates(
 
   if (!isDoubanImageUrl(url)) return candidates;
 
-  // 次选：自带服务端代理（治防盗链；浏览器只访问自己域名）
-  push(buildServerProxyUrl(url));
-  // 末选：公共 CDN（治 doubanio 直连被墙）
-  push(buildCmliussssUrl(url));
+  const primaryIsServerProxy =
+    !!primaryUrl && primaryUrl.startsWith(`${SERVER_IMAGE_PROXY_PATH}?`);
+
+  if (primaryIsServerProxy) {
+    // 次选：原图直连（服务器侧取不到时，浏览器直连也许可以）
+    push(url);
+    // 末选：公共 CDN（治 doubanio 直连被墙）
+    push(buildCmliussssUrl(url));
+  } else {
+    // 次选：自带服务端代理（治防盗链；浏览器只访问自己域名）
+    push(buildServerProxyUrl(url));
+    // 末选：公共 CDN（治 doubanio 直连被墙）
+    push(buildCmliussssUrl(url));
+  }
 
   return candidates;
 }

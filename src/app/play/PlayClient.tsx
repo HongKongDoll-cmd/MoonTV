@@ -130,28 +130,10 @@ export default function PlayClient() {
 
   return (
     <PageLayout activePath='/play'>
-      {/* 4.3.2 起播放页也有侧边栏：左侧 padding 跟随侧边栏宽度（折叠/展开同其他页面一致） */}
-      <div className='moontv-sidenav-content flex flex-col px-0 md:pl-[calc(var(--moontv-sidenav-w)+1.5rem)] md:pr-6'>
-        {/* 顶部操作栏：返回上一级（不想看了直接退出，不用回主页重新找） */}
-        <div className='flex items-center gap-3 px-3 pt-3 pb-2 lg:px-0 lg:pt-4'>
-          <BackButton showLabel />
-          <SubtitlePanel
-            tracks={subtitleTracks}
-            videoName={currentVideoName}
-            activeUrl={activeSubtitleUrl}
-            onSwitch={switchSubtitle}
-            onStyleChange={changeSubtitleStyle}
-            initialPresetId={subtitleStyleId}
-          />
-          <HotkeyHelp />
-          {videoTitle && (
-            <span className='truncate text-sm text-gray-500 dark:text-gray-400'>
-              {videoTitle}
-              {totalEpisodes > 1 && ` · 第 ${currentEpisodeIndex + 1} 集`}
-            </span>
-          )}
-        </div>
-
+      {/* 4.6.3 播放页横向全宽：不再给侧边栏留 padding。
+          播放器 + 选集是这一页的主体，左右留白只会压缩画面；
+          返回等操作改到播放器内部的覆盖层（见下方 artRef 容器内）。 */}
+      <div className='moontv-sidenav-content flex flex-col px-0 md:px-6'>
         {/* 播放器和选集 */}
         <div>
           <div className='grid lg:h-[500px] xl:h-[650px] 2xl:h-[750px] grid-cols-1 md:grid-cols-4 md:gap-0'>
@@ -162,6 +144,35 @@ export default function PlayClient() {
                   ref={artRef}
                   className='bg-black w-full h-full overflow-hidden shadow-lg'
                 ></div>
+
+                {/* 4.6.3 返回按钮与标题嵌入播放器。
+                    原来它们在播放器**外面**的顶部操作栏，播放器一全屏就跟着消失，
+                    用户想退出全屏只能靠 Esc/浏览器手势。放在 artRef 容器内，
+                    `fixed` 会以 fullscreen 元素为包含块，全屏时依然可见。
+                    字幕面板与快捷键帮助一并搬到这里：它们原本也在那条操作栏上。 */}
+                <div className='pointer-events-none absolute left-0 right-0 top-0 z-[600] flex items-center gap-2 bg-gradient-to-b from-black/70 to-transparent px-3 py-2'>
+                  <div className='pointer-events-auto flex min-w-0 items-center gap-3'>
+                    <BackButton showLabel />
+                    {videoTitle && (
+                      <span className='truncate text-sm text-white/90'>
+                        {videoTitle}
+                        {totalEpisodes > 1 &&
+                          ` · 第 ${currentEpisodeIndex + 1} 集`}
+                      </span>
+                    )}
+                  </div>
+                  <div className='pointer-events-auto ml-auto flex shrink-0 items-center gap-2'>
+                    <SubtitlePanel
+                      tracks={subtitleTracks}
+                      videoName={currentVideoName}
+                      activeUrl={activeSubtitleUrl}
+                      onSwitch={switchSubtitle}
+                      onStyleChange={changeSubtitleStyle}
+                      initialPresetId={subtitleStyleId}
+                    />
+                    <HotkeyHelp />
+                  </div>
+                </div>
 
                 {/* 弹幕选择器 */}
                 {showDanmakuSelector && (
@@ -195,13 +206,24 @@ export default function PlayClient() {
                 />
 
                 {/* 弹幕加载提示 */}
+                {/* 弹幕加载提示。top-16 是为了避开上面的返回/标题操作层 ——
+                    两者都在顶部，重叠会互相挡住。 */}
                 {isDanmakuLoading && (
-                  <div className='absolute top-4 left-4 right-4 z-[400] flex justify-center'>
+                  <div className='absolute top-16 left-4 right-4 z-[400] flex justify-center'>
                     <div className='bg-gray-800/90 text-white px-4 py-2 rounded-lg shadow-lg'>
                       正在自动加载弹幕...
                     </div>
                   </div>
                 )}
+
+                {/* 4.6.3 缓存管理弹窗挂进播放器容器。
+                    它原来是 PageLayout 层级的 fixed 元素，播放器全屏时被
+                    fullscreen 元素整个盖住，用户在全屏里点不开缓存管理。
+                    移到这里后 `fixed` 以播放器为包含块，全屏时照常弹出。 */}
+                <CacheManager
+                  isOpen={showCacheManager}
+                  onClose={() => setShowCacheManager(false)}
+                />
               </div>
             </div>
 
@@ -259,12 +281,6 @@ export default function PlayClient() {
           onDownload={() => setShowAddDownload(true)}
         />
       </div>
-
-      {/* 视频缓存管理面板 */}
-      <CacheManager
-        isOpen={showCacheManager}
-        onClose={() => setShowCacheManager(false)}
-      />
 
       {/* 添加下载弹窗 */}
       <AddDownloadModal

@@ -85,6 +85,8 @@ interface SiteConfig {
   DoubanProxy: string;
   DoubanImageProxyType: string;
   DoubanImageProxy: string;
+  // 4.6.3 番组tv 放送日历数据代理；留空 = 站内 /api/bangumi/calendar
+  BangumiProxy?: string;
   DisableYellowFilter: boolean;
   TVBoxEnabled?: boolean;
   // 4.6.1 设置跨设备同步开关
@@ -2239,6 +2241,7 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
     DoubanProxy: '',
     DoubanImageProxyType: 'direct',
     DoubanImageProxy: '',
+    BangumiProxy: '',
     DisableYellowFilter: false,
     TVBoxEnabled: false,
     // 默认开启设置同步（4.6.1）
@@ -2335,6 +2338,7 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
         DoubanImageProxyType:
           config.SiteConfig.DoubanImageProxyType || 'direct',
         DoubanImageProxy: config.SiteConfig.DoubanImageProxy || '',
+        BangumiProxy: config.SiteConfig.BangumiProxy || '',
         DisableYellowFilter: config.SiteConfig.DisableYellowFilter || false,
         TVBoxEnabled: config.SiteConfig.TVBoxEnabled || false,
         // 未配置时按「开启」处理（与 config.ts 的默认值一致）
@@ -3029,6 +3033,32 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
             </p>
           </div>
         )}
+      </div>
+
+      {/* 番组tv 放送日历数据代理（4.6.3） */}
+      <div className='space-y-3'>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            番组tv 数据代理
+          </label>
+          <input
+            type='text'
+            placeholder='留空 = 使用站内代理 /api/bangumi/calendar'
+            value={siteSettings.BangumiProxy}
+            onChange={(e) =>
+              setSiteSettings((prev) => ({
+                ...prev,
+                BangumiProxy: e.target.value,
+              }))
+            }
+            className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 shadow-sm hover:border-gray-400 dark:hover:border-gray-500"
+          />
+          <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
+            首页「新番放送」的数据来源。默认走站内服务端代理：由服务端请求上游，
+            并把封面图片改写成同源地址，不再有浏览器直连被墙导致整块空白的问题。
+            仅当站内代理不可用、或想换成自建反代时才填完整地址。
+          </p>
+        </div>
       </div>
 
       {/* 搜索接口可拉取最大页数 */}

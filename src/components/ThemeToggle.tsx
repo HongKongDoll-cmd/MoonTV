@@ -41,17 +41,14 @@ export function ThemeToggle() {
   }
 
   const toggleTheme = () => {
-    // 检查浏览器是否支持 View Transitions API
     const targetTheme = resolvedTheme === 'dark' ? 'light' : 'dark';
     setThemeColor(targetTheme);
-    if (!(document as any).startViewTransition) {
-      setTheme(targetTheme);
-      return;
-    }
-
-    (document as any).startViewTransition(() => {
-      setTheme(targetTheme);
-    });
+    // ⚠️ 不要包 `startViewTransition`。next-themes 的 `setTheme` 先更新 React
+    // state，再由 effect 把 class 写到 `<html>` —— 是异步的。而 VT 的 update
+    // 回调一旦同步返回就会立刻捕获新快照，此时 `.dark` 还没加上，
+    // 动画就从「旧主题」过渡到「旧主题」，表现为点击后主题完全不变。
+    // 项目已配 `disableTransitionOnChange`，直接切换即有过渡，不需要 VT。
+    setTheme(targetTheme);
   };
 
   return (

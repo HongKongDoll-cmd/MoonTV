@@ -7,6 +7,7 @@ import {
   type EpisodeCacheStat,
   clearVideoCache,
   deleteEpisodeCache,
+  describeEpisodeCacheKey,
   getCacheSummary,
   getEpisodeCacheStats,
 } from '@/lib/video-cache';
@@ -98,29 +99,39 @@ export default function CacheManager({ isOpen, onClose }: CacheManagerProps) {
             </div>
           ) : (
             <ul className='space-y-2'>
-              {episodes.map((ep) => (
-                <li
-                  key={ep.episodeKey}
-                  className='flex items-center justify-between rounded-lg bg-gray-50 dark:bg-gray-700/40 px-3 py-2'
-                >
-                  <div className='min-w-0'>
-                    <div className='truncate text-sm text-gray-800 dark:text-gray-200'>
-                      {ep.episodeKey}
-                    </div>
-                    <div className='text-xs text-gray-500 dark:text-gray-400 mt-0.5'>
-                      {ep.segments} 片段 · {formatBytes(ep.bytes)}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleDeleteEpisode(ep.episodeKey)}
-                    className='ml-3 shrink-0 rounded-full p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/30'
-                    aria-label='删除该剧集缓存'
-                    title='删除该剧集缓存'
+              {episodes.map((ep) => {
+                // 4.6.3：episodeKey 是 `源:id:集数` 的原始串，直接显示不可读。
+                // 拆成「名称 · 源 · 第 N 集」三段，id 由外层 truncate 截断。
+                const info = describeEpisodeCacheKey(ep.episodeKey);
+                return (
+                  <li
+                    key={ep.episodeKey}
+                    className='flex items-center justify-between rounded-lg bg-gray-50 dark:bg-gray-700/40 px-3 py-2'
                   >
-                    <Trash2 className='h-4 w-4' />
-                  </button>
-                </li>
-              ))}
+                    <div className='min-w-0'>
+                      <div
+                        className='truncate text-sm text-gray-800 dark:text-gray-200'
+                        title={ep.episodeKey}
+                      >
+                        {info.id}
+                      </div>
+                      <div className='text-xs text-gray-500 dark:text-gray-400 mt-0.5'>
+                        {info.sourceName}
+                        {info.isSeries ? ` · 第 ${info.episodeIndex + 1} 集` : ''} ·{' '}
+                        {ep.segments} 片段 · {formatBytes(ep.bytes)}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteEpisode(ep.episodeKey)}
+                      className='ml-3 shrink-0 rounded-full p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/30'
+                      aria-label='删除该剧集缓存'
+                      title='删除该剧集缓存'
+                    >
+                      <Trash2 className='h-4 w-4' />
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

@@ -422,8 +422,7 @@ export async function getCacheSummary(): Promise<{
 /** 单集缓存的聚合统计 */
 export interface EpisodeCacheStat {
   /** 剧集标识 `${source}:${id}:${episodeIndex}` */
-  episodeKey: string;
-  /** 片段数 */
+  episodeKey: string;  /** 片段数 */
   segments: number;
   /** 占用字节数 */
   bytes: number;
@@ -627,4 +626,75 @@ export async function readCachedSegment(key: string): Promise<CachedFragment | n
 /** 供调试：indexedDB 是否可用 */
 export function isMetaStoreAvailable(): boolean {
   return indexedDbAvailable();
+}
+
+// ---------------------------------------------------------------------------
+// 缓存 key 的人类可读化（4.6.3）
+// ---------------------------------------------------------------------------
+
+/** 拆解后的缓存条目信息（缓存管理面板展示用） */
+export interface EpisodeCacheKeyInfo {
+  /** 来源代号，如 openlist / emby / 索尼 */
+  source: string;
+  /** 来源展示名（网盘、影库等） */
+  sourceName: string;
+  /** 条目 id（可能是 URL，展示时由调用方截断） */
+  id: string;
+  /** 集数下标（0 起）；非剧集（电影）为 0 */
+  episodeIndex: number;
+  /** 是否为剧集（有第 N 集信息） */
+  isSeries: boolean;
+}
+
+/** 已知来源的展示名；未收录的直接用原代号 */
+const SOURCE_DISPLAY_NAMES: Record<string, string> = {
+  openlist: '网盘',
+  emby: '影库',
+};
+
+/**
+ * 把 `源:id:集数` 的缓存 key 拆成可读结构。
+ *
+ * 纯函数，**不修改入参**。切分策略是**左定右动**：
+ *   - 从**第一个**冒号切出 source（源代号是固定串，自身不含冒号）；
+ *   - 剩下的 `id:集数` 再从**最后一个**冒号切。
+ * 这样 id 里带端口的主机名（`http://192.168.1.5:5244/...`）也不会被切坏 ——
+ * 若按"最后两个冒号"切，端口号会被误当成 source 的一部分。
+ *
+ * 结构不符（少于 3 段 / 集数不是数字）时退化为「整串当 id」，
+ * 面板至少还能显示原文，不会崩。
+ */
+export function describeEpisodeCacheKey(
+  episodeKey: string
+): EpisodeCacheKeyInfo {
+  const fallback: EpisodeCacheKeyInfo = {
+    source: '',
+    sourceName: '未知来源',
+    id: episodeKey || '',
+    episodeIndex: 0,
+    isSeries: false,
+  };
+  if (!episodeKey) return fallback;
+
+  const firstColon = episodeKey.indexOf(':');
+  if (firstColon <= 0 || firstColon === episodeKey.length - 1) return fallback;
+
+  const source = episodeKey.slice(0, firstColon);
+  const rest = episodeKey.slice(firstColon + 1);
+
+  const lastColon = rest.lastIndexOf(':');
+  if (lastColon <= 0 || lastColon === rest.length - 1) return fallback;
+
+  const id = rest.slice(0, lastColon);
+  const tail = rest.slice(lastColon + 1);
+  if (!/^\d+$/.test(tail)) return fallback;
+  if (!id) return fallback;
+
+  return {
+    source,
+    sourceName: SOURCE_DISPLAY_NAMES[source] || source,
+    id,
+    episodeIndex: Number(tail),
+    isSeries: Number(tail) > 0,
+  };
 }

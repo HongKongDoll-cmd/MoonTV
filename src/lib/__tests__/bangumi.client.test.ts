@@ -1,7 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   BANGUMI_REQUEST_TIMEOUT,
+  DEFAULT_BANGUMI_CALENDAR_URL,
   GetBangumiCalendarData,
+  resolveBangumiCalendarUrl,
 } from '../bangumi.client';
 
 function mockFetchOnce(impl: (...args: any[]) => Promise<unknown>) {
@@ -98,5 +100,49 @@ describe('GetBangumiCalendarData', () => {
     await GetBangumiCalendarData();
     expect(clearSpy).toHaveBeenCalled();
     clearSpy.mockRestore();
+  });
+});
+
+describe('resolveBangumiCalendarUrl（4.6.3 站内代理）', () => {
+  const original = (window as any).RUNTIME_CONFIG;
+
+  afterEach(() => {
+    (window as any).RUNTIME_CONFIG = original;
+    delete (global as any).fetch;
+  });
+
+  test('默认走站内代理，不再浏览器直连 api.bgm.tv', () => {
+    expect(resolveBangumiCalendarUrl(undefined)).toBe(
+      DEFAULT_BANGUMI_CALENDAR_URL
+    );
+    expect(DEFAULT_BANGUMI_CALENDAR_URL).toBe('/api/bangumi/calendar');
+  });
+
+  test('管理台配置优先', () => {
+    expect(
+      resolveBangumiCalendarUrl({ BANGUMI_PROXY: 'https://proxy.example.com/calendar' })
+    ).toBe('https://proxy.example.com/calendar');
+  });
+
+  test('空白字符串按默认处理（避免把请求打到空地址）', () => {
+    expect(resolveBangumiCalendarUrl({ BANGUMI_PROXY: '   ' })).toBe(
+      DEFAULT_BANGUMI_CALENDAR_URL
+    );
+    expect(resolveBangumiCalendarUrl({ BANGUMI_PROXY: '' })).toBe(
+      DEFAULT_BANGUMI_CALENDAR_URL
+    );
+  });
+
+  test('实际请求用的是解析出来的地址', async () => {
+    (window as any).RUNTIME_CONFIG = {
+      BANGUMI_PROXY: 'https://proxy.example.com/calendar',
+    };
+    let requested = '';
+    mockFetchOnce(async (url: string) => {
+      requested = url;
+      return { ok: true, json: async () => OK_PAYLOAD };
+    });
+    await GetBangumiCalendarData();
+    expect(requested).toBe('https://proxy.example.com/calendar');
   });
 });

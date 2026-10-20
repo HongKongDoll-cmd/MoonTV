@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
       DoubanProxy,
       DoubanImageProxyType,
       DoubanImageProxy,
+      BangumiProxy,
       DisableYellowFilter,
       DanmakuApiBaseUrl,
       TVBoxEnabled,
@@ -53,6 +54,7 @@ export async function POST(request: NextRequest) {
       DoubanProxy: string;
       DoubanImageProxyType: string;
       DoubanImageProxy: string;
+      BangumiProxy?: string;
       DisableYellowFilter: boolean;
       DanmakuApiBaseUrl?: string;
       TVBoxEnabled?: boolean;
@@ -71,6 +73,7 @@ export async function POST(request: NextRequest) {
       typeof DoubanProxy !== 'string' ||
       typeof DoubanImageProxyType !== 'string' ||
       typeof DoubanImageProxy !== 'string' ||
+      (BangumiProxy !== undefined && typeof BangumiProxy !== 'string') ||
       typeof DisableYellowFilter !== 'boolean' ||
       (DanmakuApiBaseUrl !== undefined &&
         typeof DanmakuApiBaseUrl !== 'string') ||
@@ -104,7 +107,11 @@ export async function POST(request: NextRequest) {
     }
 
     // 更新缓存中的站点设置
+    // ⚠️ 必须先展开原配置：这个对象是整体覆盖，漏掉未在此处列出的字段
+    // （例如 4.6.1 的 LocalSettingsSyncMode）会被静默重置成默认值，
+    // 表现为「关掉的开关在保存其他设置后自己开了」。
     adminConfig.SiteConfig = {
+      ...adminConfig.SiteConfig,
       SiteName,
       Announcement,
       SearchDownstreamMaxPage,
@@ -113,6 +120,11 @@ export async function POST(request: NextRequest) {
       DoubanProxy,
       DoubanImageProxyType,
       DoubanImageProxy,
+      // 不传 = 保持原值（老客户端不会误清空已配的代理）
+      BangumiProxy:
+        BangumiProxy === undefined
+          ? adminConfig.SiteConfig.BangumiProxy
+          : BangumiProxy,
       DisableYellowFilter,
       DanmakuApiBaseUrl,
       TVBoxEnabled,

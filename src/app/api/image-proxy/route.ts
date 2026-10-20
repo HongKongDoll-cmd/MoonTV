@@ -15,19 +15,29 @@ export const runtime = 'edge';
  * 这个接口在 middleware 里是**免登录**白名单，而它是把用户传入的 URL 直接
  * 回源的通用 GET 代理 —— 不限制就等于对外开了一个能打你内网
  * （`?url=http://169.254.169.254/...`）还能白烧你出口带宽的开放代理。
- * 实际用它的只有豆瓣图链路（`processImageUrl` 与回退链），所以锁死豆瓣域名即可。
+ * 实际用它的只有豆瓣图链路（`processImageUrl` 与回退链）与番组tv 图片
+ * （`/api/bangumi/calendar` 把 `lain.bgm.tv` 改写到这里），所以锁死这两类域名。
  * 需要代理别的源时在这里加，别直接放开成任意 URL。
  */
 const ALLOWED_IMAGE_HOSTS = [
   '*.doubanio.com',
   '*.doubanio.cmliussss.net',
   '*.doubanio.cmliussss.com',
+  // 番组tv 放送日历的封面（4.6.3 起由服务端代理改写过来）
+  '*.bgm.tv',
 ];
 
-/** 单 IP 每分钟允许的取图次数：正常翻页约 60 张/页，阈值留足余量 */
+/**
+ * 单 IP 每分钟允许的取图次数。
+ *
+ * 4.6.3 起豆瓣图**默认全量走这个代理**，阈值必须跟着涨：首页一档约 60 张，
+ * 加上详情页、搜索页，重度浏览几分钟就能超过原来的 120 次/分，
+ * 之后全部 429 —— 那比直连失败更糟（整页破图且没有回退余地）。
+ * 600 次/分对正常浏览留足余量，同时仍能挡住「拿它当开放代理刷流量」。
+ */
 const RATE_LIMIT = createRateLimiter({
   windowMs: 60_000,
-  max: 120,
+  max: 600,
 });
 
 // OrionTV 兼容接口
@@ -55,9 +65,18 @@ export async function GET(request: Request) {
   }
 
   try {
+    // Referer 取被代理图片自己的站点：豆瓣图与番组tv 图的来源不同，
+    // 写死豆瓣域名在代理 bgm.tv 时反而不自然（个别 CDN 会校验 Referer）。
+    let referer = 'https://movie.douban.com/';
+    try {
+      referer = `${new URL(imageUrl).origin}/`;
+    } catch {
+      // URL 解析失败时用上面的兜底值
+    }
+
     const imageResponse = await fetch(imageUrl, {
       headers: {
-        Referer: 'https://movie.douban.com/',
+        Referer: referer,
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
       },

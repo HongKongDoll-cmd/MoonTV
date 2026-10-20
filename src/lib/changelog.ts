@@ -11,6 +11,28 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.6.3",
+    date: "2026-10-20",
+    added: [
+    "番组tv 改走服务端代理 /api/bangumi/calendar, 封面图自动改写为同源地址",
+    "管理台新增「番组tv 数据代理」配置项, 留空即用站内代理",
+    "新增环境变量 NEXT_PUBLIC_BANGUMI_PROXY 与 NEXT_PUBLIC_BANGUMI_IMAGE_PROXY",
+    "弹幕限流: 按秒与总量两级等距抽稀, 缓解高密度弹幕造成的卡顿"
+    ],
+    changed: [
+    "豆瓣图片默认改为全量走站内代理, 不再等直连失败后才回退",
+    "播放页改为横向全宽, 返回按钮与标题嵌入播放器覆盖层",
+    "缓存管理弹窗改挂到播放器内, 播放器全屏时也能打开",
+    "缓存列表展示改为名称-源-第几集, 不再显示原始的 源:id:集数",
+    "加载遮罩不再盖住播放器顶部的返回按钮, 加载期间也能退出"
+    ],
+    fixed: [
+    "修复主题切换按钮点击后主题不变(View Transitions 抢先捕获快照)",
+    "修复保存站点配置会把「跨设备同步」开关重置回默认的问题",
+    "修复去广告开关切换后弹幕变回未限流全量的问题"
+    ]
+  },
+  {
     version: "4.6.2",
     date: "2026-10-03",
     added: [

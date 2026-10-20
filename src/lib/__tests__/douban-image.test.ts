@@ -102,6 +102,23 @@ describe('buildImageCandidates', () => {
     expect(out.some((u) => u.includes(CMLIUSSSS_IMAGE_HOST))).toBe(true);
   });
 
+  it('4.6.3 全量代理：次选是原图直连，不是重复的代理地址', () => {
+    // 默认改成全量走代理后，primaryUrl 就是 /api/image-proxy?...
+    // 此时第二级若还是代理地址，第一级失败后等于原地重试。
+    const primary = buildServerProxyUrl(DOUBAN);
+    const out = buildImageCandidates(DOUBAN, primary);
+    expect(out[0]).toBe(primary);
+    expect(out[1]).toBe(DOUBAN);
+    expect(out[2]).toContain(CMLIUSSSS_IMAGE_HOST);
+  });
+
+  it('4.6.3 全量代理：代理地址不同（不同原图）时各自独立成链', () => {
+    const out = buildImageCandidates(DOUBAN_IMG9, buildServerProxyUrl(DOUBAN_IMG9));
+    expect(out[0]).toContain('img9.doubanio.com');
+    expect(out[1]).toBe(DOUBAN_IMG9);
+    expect(out[2]).toContain(CMLIUSSSS_IMAGE_HOST);
+  });
+
   it('全空输入返回空数组', () => {
     expect(buildImageCandidates('', '')).toEqual([]);
   });

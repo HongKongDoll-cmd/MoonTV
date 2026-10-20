@@ -62,8 +62,10 @@ export default async function RootLayout({
   let doubanProxyType = process.env.NEXT_PUBLIC_DOUBAN_PROXY_TYPE || 'direct';
   let doubanProxy = process.env.NEXT_PUBLIC_DOUBAN_PROXY || '';
   let doubanImageProxyType =
-    process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE || 'direct';
+    process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE || 'server';
   let doubanImageProxy = process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY || '';
+  // 番组tv 数据代理（4.6.3）：环境变量兜底，管理台配置优先
+  let bangumiProxy = process.env.NEXT_PUBLIC_BANGUMI_PROXY || '';
   let disableYellowFilter =
     process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true';
   let danmakuApiBaseUrl =
@@ -82,6 +84,7 @@ export default async function RootLayout({
     doubanProxy = config.SiteConfig.DoubanProxy;
     doubanImageProxyType = config.SiteConfig.DoubanImageProxyType;
     doubanImageProxy = config.SiteConfig.DoubanImageProxy;
+    bangumiProxy = config.SiteConfig.BangumiProxy || bangumiProxy;
     disableYellowFilter = config.SiteConfig.DisableYellowFilter;
     danmakuApiBaseUrl =
       config.SiteConfig.DanmakuApiBaseUrl || danmakuApiBaseUrl;
@@ -102,6 +105,7 @@ export default async function RootLayout({
     DOUBAN_PROXY: doubanProxy,
     DOUBAN_IMAGE_PROXY_TYPE: doubanImageProxyType,
     DOUBAN_IMAGE_PROXY: doubanImageProxy,
+    BANGUMI_PROXY: bangumiProxy,
     DISABLE_YELLOW_FILTER: disableYellowFilter,
     DANMU_API_BASE_URL: danmakuApiBaseUrl,
     PLAYBACK_SAVE_INTERVAL: playbackSaveInterval,
