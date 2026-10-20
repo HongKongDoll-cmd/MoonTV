@@ -24,6 +24,13 @@ import { VideoDetailPanel } from './components/VideoDetailPanel';
 import { usePlayEngine } from './usePlayEngine';
 
 /**
+ * 播放中顶部操作层淡出前的空闲时长（毫秒）。
+ *
+ * 太短会让用户刚点一下就消失，太长又挡画面；2.5s 与主流播放器一致。
+ */
+const PLAYER_CONTROLS_IDLE_MS = 2500;
+
+/**
  * 播放页客户端组件。
  *
  * 仅负责：调用 {@link usePlayEngine} 获取状态/回调，并按视图分层渲染。
@@ -32,12 +39,93 @@ import { usePlayEngine } from './usePlayEngine';
 export default function PlayClient() {
   const router = useRouter();
   const [showAddDownload, setShowAddDownload] = useState(false);
-
   // 影库地址（个人配置存 cookie，服务端不下发地址）：只用来判断播放地址
   // 是否与影库同源 = 走服务器中转。站点级配置拿不到地址，靠 URL 特征兜底。
   const [libraryHost, setLibraryHost] = useState<string | null>(null);
   useEffect(() => {
     setLibraryHost(readOpenListConfigFromCookie()?.baseUrl ?? null);
+  }, []);
+
+  /**
+   * 播放中自动淡出顶部操作层（4.6.4）。
+   *
+   * 4.6.3 把返回按钮、标题、字幕面板、快捷键帮助嵌进了播放器右上角，
+   * 但它们常驻会一直挡着画面。这里按播放器的通行交互做：
+   * 播放中且鼠标空闲 2.5s → 淡出；移动鼠标 / 触摸 / seek → 立刻回来；
+   * 暂停、加载中、弹幕选择器或缓存面板打开时始终显示（那些时候用户正要操作）。
+   *
+   * ⚠️ video 元素是 ArtPlayer **异步**创建的，所以用轮询等它出现再绑事件
+   * （与 IntroSkipButton 同一套做法），不能假设 effect 跑完时 video 已在。
+   */
+  const [controlsVisible, setControlsVisible] = useState(true);
+  useEffect(() => {
+    let video: HTMLVideoElement | null = null;
+    let idleTimer: number | null = null;
+    let pollTimer: number | null = null;
+    let lastWakeAt = 0;
+
+    const clearIdle = () => {
+      if (idleTimer !== null) {
+        window.clearTimeout(idleTimer);
+        idleTimer = null;
+      }
+    };
+
+    const scheduleIdle = () => {
+      clearIdle();
+      idleTimer = window.setTimeout(() => {
+        if (video && !video.paused) setControlsVisible(false);
+      }, PLAYER_CONTROLS_IDLE_MS);
+    };
+
+    const wake = () => {
+      // 节流：鼠标移动事件频率很高，没必要每次都重置定时器
+      const now = Date.now();
+      if (now - lastWakeAt < 400) return;
+      lastWakeAt = now;
+      setControlsVisible(true);
+      scheduleIdle();
+    };
+
+    const onPause = () => {
+      setControlsVisible(true);
+      clearIdle();
+    };
+
+    const onPlay = () => {
+      setControlsVisible(true);
+      scheduleIdle();
+    };
+
+    const bindVideo = (): boolean => {
+      video = artRef.current?.querySelector<HTMLVideoElement>('video') ?? null;
+      if (!video) return false;
+      video.addEventListener('play', onPlay);
+      video.addEventListener('pause', onPause);
+      video.addEventListener('seeking', wake);
+      return true;
+    };
+
+    pollTimer = window.setInterval(() => {
+      if (bindVideo()) {
+        if (pollTimer !== null) window.clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    }, 500);
+
+    const container = artRef.current;
+    container?.addEventListener('mousemove', wake);
+    container?.addEventListener('touchstart', wake);
+
+    return () => {
+      if (pollTimer !== null) window.clearInterval(pollTimer);
+      clearIdle();
+      video?.removeEventListener('play', onPlay);
+      video?.removeEventListener('pause', onPause);
+      video?.removeEventListener('seeking', wake);
+      container?.removeEventListener('mousemove', wake);
+      container?.removeEventListener('touchstart', wake);
+    };
   }, []);
 
   const {
@@ -96,6 +184,14 @@ export default function PlayClient() {
     handleToggleFollowing,
   } = usePlayEngine();
 
+  // 这些场景下强制显示顶部操作层：加载中用户正要等结果，
+  // 弹幕选择器 / 缓存面板打开时正要操作，不能这时候淡出。
+  const overlayVisible =
+    controlsVisible ||
+    isVideoLoading ||
+    showDanmakuSelector ||
+    showCacheManager;
+
   if (loading) {
     return (
       <PageLayout activePath='/play'>
@@ -130,10 +226,12 @@ export default function PlayClient() {
 
   return (
     <PageLayout activePath='/play'>
-      {/* 4.6.3 播放页横向全宽：不再给侧边栏留 padding。
-          播放器 + 选集是这一页的主体，左右留白只会压缩画面；
-          返回等操作改到播放器内部的覆盖层（见下方 artRef 容器内）。 */}
-      <div className='moontv-sidenav-content flex flex-col px-0 md:px-6'>
+      {/* 4.6.4：左侧留位必须保留。侧边栏是 `fixed left-0 z-50` 的**浮层**
+          （见 globals.css 的 .moontv-sidenav），内容区不预留 padding 就会被它
+          盖住左侧 144px —— 4.6.3 曾把这里改成 md:px-6，播放器左缘顶到屏幕边，
+          表现为「播放器左侧与侧边栏重叠」。
+          "横向全宽"指的是占满侧边栏以外的空间，不是盖到侧边栏上去。 */}
+      <div className='moontv-sidenav-content flex flex-col px-0 md:pl-[calc(var(--moontv-sidenav-w)+1.5rem)] md:pr-6'>
         {/* 播放器和选集 */}
         <div>
           <div className='grid lg:h-[500px] xl:h-[650px] 2xl:h-[750px] grid-cols-1 md:grid-cols-4 md:gap-0'>
@@ -149,8 +247,16 @@ export default function PlayClient() {
                     原来它们在播放器**外面**的顶部操作栏，播放器一全屏就跟着消失，
                     用户想退出全屏只能靠 Esc/浏览器手势。放在 artRef 容器内，
                     `fixed` 会以 fullscreen 元素为包含块，全屏时依然可见。
-                    字幕面板与快捷键帮助一并搬到这里：它们原本也在那条操作栏上。 */}
-                <div className='pointer-events-none absolute left-0 right-0 top-0 z-[600] flex items-center gap-2 bg-gradient-to-b from-black/70 to-transparent px-3 py-2'>
+                    字幕面板与快捷键帮助一并搬到这里：它们原本也在那条操作栏上。
+                    4.6.4：播放中且鼠标空闲时整层淡出（overlayVisible），
+                    移动鼠标 / 触摸 / seek 立刻回来，暂停时常驻。 */}
+                <div
+                  className={`pointer-events-none absolute left-0 right-0 top-0 z-[600] flex items-center gap-2 bg-gradient-to-b from-black/70 to-transparent px-3 py-2 transition-opacity duration-300 ${
+                    overlayVisible
+                      ? 'opacity-100'
+                      : 'pointer-events-none opacity-0'
+                  }`}
+                >
                   <div className='pointer-events-auto flex min-w-0 items-center gap-3'>
                     <BackButton showLabel />
                     {videoTitle && (

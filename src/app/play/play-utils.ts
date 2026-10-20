@@ -391,24 +391,48 @@ export interface HlsLoaderOptions {
 }
 
 /**
+ * ABR 带宽估算的上限（字节/秒）。
+ *
+ * 为什么必须封顶：缓存命中时上报的"耗时"是**预取时**记录的 `costMs` ——
+ * 那是本地读取与当时网络的混合结果。闲时预取一个 1MB 分片可能只要 50ms，
+ * 算出来就是 160Mbps。hls.js 的 ABR 用 EWMA 持续采样，被这类样本一路抬高后
+ * 会去选最高码率档；而高档分片的缓存键与预取时的低档**不一致**，
+ * 于是全部未命中 → 现拉高档 → 真实带宽跟不上 → 表现为「明明有缓存还一卡一卡」。
+ *
+ * 25Mbps 足够覆盖常见 4K HLS 码率，又不至于把 ABR 骗到高档。
+ */
+export const MAX_CACHED_BW_ESTIMATE = (25 * 1000 * 1000) / 8;
+
+/**
  * 合成 hls.js 的 LoaderStats。
  *
  * 关键点：命中缓存时不能上报"耗时 0"。hls.js 的 ABR 用 EWMA 估算带宽，
  * 0 延迟会被当成无限带宽，导致下一批片段直接判到最高码率而卡顿。
- * 这里复用预取时记录的真实耗时，让带宽估算保持连续。
+ * 这里复用预取时记录的真实耗时，让带宽估算保持连续 —— 但要用
+ * {@link MAX_CACHED_BW_ESTIMATE} 封顶，否则闲时预取的极低耗时会把估值撑到虚高。
  */
-function buildCachedStats(costMs: number, bytes: number): Record<string, unknown> {
+export function buildCachedStats(
+  costMs: number,
+  bytes: number
+): Record<string, unknown> {
   const end = performance.now();
-  const span = Math.max(1, costMs);
+  const size = Math.max(1, bytes);
+  const rawBw = (size / Math.max(1, costMs)) * 1000;
+  // 超上限时反算一个等效耗时，让 bwEstimate 与 loading 时间自洽
+  // （hls.js 的 ABR 会同时读这两个字段，只改一个会前后矛盾）
+  const span =
+    rawBw > MAX_CACHED_BW_ESTIMATE
+      ? (size / MAX_CACHED_BW_ESTIMATE) * 1000
+      : Math.max(1, costMs);
   const start = end - span;
   const zero = { start: 0, first: 0, end: 0 };
   return {
     aborted: false,
-    loaded: bytes,
+    loaded: size,
     retry: 0,
-    total: bytes,
+    total: size,
     chunkCount: 1,
-    bwEstimate: (bytes / span) * 1000,
+    bwEstimate: (size / span) * 1000,
     loading: { start, first: start + span * 0.6, end },
     parsing: { ...zero },
     buffering: { ...zero },

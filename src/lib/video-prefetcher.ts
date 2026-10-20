@@ -299,7 +299,11 @@ export class VideoPrefetcher {
     signal: AbortSignal
   ): Promise<void> {
     const useProxy = options.useProxy ?? settings.useProxy;
-    const concurrency = Math.max(1, Math.min(4, options.concurrency ?? 3));
+    // 4.6.4：默认并发 3 → 2，上限 4 → 3。
+    // 预取是和**当前正在播放的分片请求**抢同一条家庭宽带的。3 条并发很容易
+    // 把播放器的回源请求挤到排队，表现为「缓存里有数据却还是一卡一卡」。
+    // 降到 2 条后缓存速度仍远快于播放消耗，但不至于掐住播放。
+    const concurrency = Math.max(1, Math.min(3, options.concurrency ?? 2));
     const lookBehind = Math.max(0, options.lookBehindSeconds ?? 30);
 
     const horizonSeconds = options.horizonSeconds ?? settings.horizonSeconds;

@@ -316,6 +316,13 @@ function buildShortcutTooltip(overrides: ShortcutBindings): string {
  * 当前集预取器会接管，按无限视野继续往后铺。
  */
 const NEXT_EPISODE_HORIZON_SECONDS = 420;
+/**
+ * 下一集预热的播放进度门槛（4.6.4）。
+ *
+ * 早于这个进度预热下一集，会和当前集的回源抢带宽，导致播放卡顿；
+ * 太晚则用户点「下一集」时还没缓存多少。80% 是两者之间的折中。
+ */
+const NEXT_EPISODE_WARMUP_RATIO = 0.8;
 
 /**
  * 组装「视频缓存」设置项的 tooltip 文案。
@@ -2569,11 +2576,24 @@ export function usePlayEngine() {
        * 预热下一集（落地路线第 3 步）。
        *
        * 走独立的预取器实例，因此**不会**打断当前集的队列。
-       * 只在当前集队列跑到 `done` 时触发一次（由 `nextWarmupKeyRef` 去重），
-       * 并且随集数/画质变化自动失效。
+       * 由 `nextWarmupKeyRef` 去重，并且随集数/画质变化自动失效。
+       *
+       * 4.6.4：触发条件从「当前集队列铺满」改为「播放进度过 80%」。
+       * 队列铺满可能在刚开始几分钟就发生（缓存 horizon 设得短时），
+       * 那一刻预热下一集会和当前集的回源抢带宽 —— 正是「有缓存还一卡一卡」
+       * 的典型成因。等到快看完再预热，既不影响当下播放，也来得及。
        */
       const warmupNextEpisode = () => {
         if (!loadCacheSettings().enabled) return;
+
+        // 播放进度不足就不预热：拿不到 video 或 duration 未知时按 0 处理。
+        // artRef 是播放器容器（div），video 元素要往里找。
+        const video = artRef.current?.querySelector<HTMLVideoElement>('video');
+        const ratio =
+          video && video.duration > 0
+            ? video.currentTime / video.duration
+            : 0;
+        if (ratio < NEXT_EPISODE_WARMUP_RATIO) return;
 
         const data = detailRef.current;
         const episodes = data?.episodes;
@@ -2804,11 +2824,15 @@ export function usePlayEngine() {
               // 真正的"缓存后面的"由 VideoPrefetcher 写入 Cache Storage 承担，
               // 这里只需一个适度的内存缓冲，避免移动端内存压力。
               // 弱网优化：缓冲拉长到 2 分钟，网络抖动时不容易转圈；
-              // 实际内存占用仍由 maxBufferSize（90MB）兜底。
+              // 实际内存占用仍由 maxBufferSize 兜底。
               maxBufferLength: 120, // 前向缓冲目标 120s
               maxMaxBufferLength: 600, // 前向缓冲硬上限 600s
               backBufferLength: 30, // 仅保留 30s 已播放内容，避免内存占用
-              maxBufferSize: 90 * 1000 * 1000, // 约 90MB，超出后触发清理
+              // 4.6.4：90MB → 150MB。原来的 90MB 对高码率视频是个隐性瓶颈：
+              // 8Mbps 的片子缓冲满 120s 需要约 120MB，被 90MB 硬顶压住后
+              // maxBufferLength(120s) 从来没真正达成过，缓冲始终填不满，
+              // 网络一抖就卡。150MB 足以让 120s 目标在 10Mbps 内都成立。
+              maxBufferSize: 150 * 1000 * 1000, // 约 150MB，超出后触发清理
 
               /* 自定义 loader：去广告 + 缓存优先 */
               loader: CustomHlsJsLoader,

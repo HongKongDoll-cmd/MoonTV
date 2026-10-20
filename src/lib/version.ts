@@ -2,7 +2,18 @@
 
 'use client';
 
-const CURRENT_VERSION = '4.6.2';
+import { changelog } from './changelog';
+
+/**
+ * 当前版本号 —— **单一真源是 `changelog.ts` 的第一个条目**。
+ *
+ * 曾经这里是手写的字符串，结果 changelog 已经写到 4.6.3、这里还停在 4.6.2，
+ * 登录页 / 用户菜单 / 版本面板三处都显示着旧版本号。两处手工维护必然对不上，
+ * 所以改成从 changelog 读：只要更新日志加了新条目，版本号自动跟着走。
+ *
+ * `changelog.ts` 是纯数据、不依赖浏览器 API，客户端与服务端都能 import。
+ */
+export const CURRENT_VERSION = changelog[0]?.version ?? '0.0.0';
 
 // 版本检查结果枚举
 export enum UpdateStatus {
@@ -11,9 +22,10 @@ export enum UpdateStatus {
   FETCH_FAILED = 'fetch_failed', // 获取失败
 }
 
-// 远程版本检查URL配置
+/** 远程版本检查地址（第一个是主用，其余是备用） */
 const VERSION_CHECK_URLS = [
   'https://raw.githubusercontent.com/Stardm0/MoonTV/main/VERSION.txt',
+  'https://raw.githubusercontent.com/HongKongDoll-cmd/MoonTV/main/VERSION.txt',
 ];
 
 /**
@@ -147,5 +159,5 @@ function compareVersions(remoteVersion: string): UpdateStatus {
   }
 }
 
-// 导出当前版本号供其他地方使用
-export { compareVersions, CURRENT_VERSION };
+// compareVersions 供版本面板等处复用（CURRENT_VERSION 已在文件顶部导出）
+export { compareVersions };
