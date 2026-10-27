@@ -11,6 +11,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.6.8",
+    date: "2026-10-27",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+    "修复登录页无限刷新: 入口页上的鉴权请求返回 401 时不再重复跳转登录页(redirect 参数会层层嵌套)",
+    "修复未登录时全局组件触发的 401 会连带清除登录态"
+    ]
+  },
+  {
     version: "4.6.7",
     date: "2026-10-27",
     added: [

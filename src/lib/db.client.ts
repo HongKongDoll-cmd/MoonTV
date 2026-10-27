@@ -15,6 +15,7 @@
  */
 
 import { getAuthInfoFromBrowserCookie } from './auth';
+import { isAuthEntryPath } from './auth-matcher';
 import { Following, SkipConfig, TodayUpdatedRecord } from './types';
 
 /**
@@ -491,6 +492,24 @@ async function fetchWithAuth(
   if (!res.ok) {
     // 如果是 401 未授权，跳转到登录页面
     if (res.status === 401) {
+      /**
+       * ⚠️ 已经在登录页（或警告页）时**绝对不能再跳**（4.6.8）。
+       *
+       * 登录页同样会挂载全站的全局组件（设置同步 / 更新通知 / 在线状态），
+       * 它们也会走 fetchWithAuth。未登录时这些请求必然 401，如果继续执行
+       * 下面的「logout + 跳 /login?redirect=当前URL」，就会：
+       *   /login → 401 → /login?redirect=/login → 401 → /login?redirect=/login?redirect=/login → …
+       * 表现为「卡在登录界面无限刷新」，且 redirect 参数一层层嵌套变长。
+       *
+       * 直接抛错让调用方按普通请求失败处理即可，页面本身不需要再导航。
+       */
+      if (
+        typeof window !== 'undefined' &&
+        isAuthEntryPath(window.location.pathname)
+      ) {
+        throw new Error('用户未授权');
+      }
+
       // 调用 logout 接口
       try {
         await fetch('/api/logout', {
