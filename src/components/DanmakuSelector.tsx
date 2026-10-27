@@ -155,7 +155,7 @@ export default function DanmakuSelector({
 
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="relative w-full max-w-2xl max-h-[80vh] mx-4 bg-white dark:bg-gray-800 rounded-lg shadow-xl overflow-hidden">
+      <div className="relative w-full max-w-2xl max-h-[80dvh] mx-4 bg-white dark:bg-gray-800 rounded-lg shadow-xl overflow-hidden">
         {/* 标题栏 */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-2">
@@ -184,7 +184,7 @@ export default function DanmakuSelector({
         </div>
 
         {/* 内容区域 */}
-        <div className="p-4 overflow-y-auto max-h-[calc(80vh-80px)]">
+        <div className="p-4 overflow-y-auto max-h-[calc(80dvh-80px)]">
           {/* 搜索框 - 只在未选择动漫时显示 */}
           {!selectedAnime && (
             <form onSubmit={handleSearch} className="mb-4">

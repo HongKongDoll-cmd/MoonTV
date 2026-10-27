@@ -285,6 +285,20 @@ div[data-media-provider] video {
   --moontv-sidenav-w: 144px;
 }
 
+/* 移动端底部导航的占位高度（4.6.6）。
+   原来写死在 layout.tsx 的 main 上（mb-14 + paddingBottom 3.5rem+安全区 ≈ 7rem），
+   播放页隐藏导航后那截空白还在。改为由 body 标记驱动：
+   只有真正渲染了底部导航的页面才占位。 */
+:root {
+  --moontv-bottom-nav-space: 0px;
+}
+
+@media (max-width: 767px) {
+  body[data-bottom-nav='on'] {
+    --moontv-bottom-nav-space: calc(7rem + env(safe-area-inset-bottom));
+  }
+}
+
 .moontv-sidenav {
   width: var(--moontv-sidenav-w);
   transition: width 0.2s ease;

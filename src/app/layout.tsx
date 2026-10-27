@@ -167,9 +167,12 @@ export default async function RootLayout({
               {/* 页面内容 */}
               <div className='relative w-full'>
                 <main
-                  className='flex-1 mb-14 md:mb-0'
+                  className='flex-1'
                   style={{
-                    paddingBottom: 'calc(3.5rem + env(safe-area-inset-bottom))',
+                    // 4.6.6：底部导航占位由 body[data-bottom-nav] 驱动。
+                    // 播放页不渲染导航 → 标记被移除 → 留白自动归零，
+                    // 不会在页面底部拖出一截空白。
+                    paddingBottom: 'var(--moontv-bottom-nav-space, 0px)',
                   }}
                 >
                   {children}

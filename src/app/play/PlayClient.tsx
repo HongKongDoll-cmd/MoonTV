@@ -238,7 +238,14 @@ export default function PlayClient() {
           <div className='grid lg:h-[500px] xl:h-[650px] 2xl:h-[750px] grid-cols-1 md:grid-cols-4 md:gap-0'>
             {/* 播放器 */}
             <div className='h-full border-0 md:border-t md:border-b md:border-l md:border-white/0 md:dark:border-white/30 md:col-span-3'>
-              <div className='relative w-full h-[300px] lg:h-full'>
+              {/* 4.6.6 移动端：
+                  竖屏 —— 原来固定 h-[300px]，16:9 片源在 390px 宽的手机上实际
+                  画面只有 219px，上下各留 40px 黑边。改成 aspect-video 自适应，
+                  黑边消失、页面更紧凑（画面尺寸不变）。
+                  横屏 —— 用 mobile-landscape 断点（orientation: landscape 且
+                  max-height:700px）把播放器 fixed 铺满视口，进入沉浸态；
+                  转回竖屏自动恢复。桌面端不受影响（高度通常 > 700px）。 */}
+              <div className='relative w-full aspect-video lg:aspect-auto lg:h-full mobile-landscape:fixed mobile-landscape:inset-0 mobile-landscape:z-[700] mobile-landscape:aspect-auto mobile-landscape:h-[100dvh] mobile-landscape:bg-black'>
                 <div
                   ref={artRef}
                   className='bg-black w-full h-full overflow-hidden shadow-lg'
@@ -277,7 +284,10 @@ export default function PlayClient() {
                       onStyleChange={changeSubtitleStyle}
                       initialPresetId={subtitleStyleId}
                     />
-                    <HotkeyHelp />
+                    {/* 手机没有物理键盘，这个入口只在宽屏显示 */}
+                    <span className='hidden md:flex'>
+                      <HotkeyHelp />
+                    </span>
                   </div>
                 </div>
 

@@ -27,6 +27,10 @@ const ConditionalNav = () => {
   // 移动端不受影响：两者都是 `hidden md:block`，手机上只走 MobileHeader + MobileBottomNav。
   const isAdmin = pathname.startsWith('/admin');
 
+  // 4.6.6 播放页隐藏移动端底部导航：看片时它固定占 56px 且容易误触。
+  // 返回入口用播放器左上角的返回按钮（4.6.3 已嵌入播放器）。
+  const isPlay = pathname.startsWith('/play');
+
   // 如果需要隐藏导航栏，返回 null
   if (shouldHideNav) {
     return null;
@@ -34,16 +38,23 @@ const ConditionalNav = () => {
 
   return (
     <>
-      {/* 移动端头部 - 固定在根布局，避免页面切换时重新渲染 */}
-      <MobileHeader showBackButton={false} />
+      {/* 移动端头部 - 固定在根布局，避免页面切换时重新渲染。
+          播放页隐藏：桌面端播放页本来就没有顶部导航（只有侧边栏），
+          手机上再顶一条站名栏会与播放器内的返回按钮重复、也挤占画面；
+          返回入口已经在播放器左上角。 */}
+      {!isPlay && <MobileHeader showBackButton={false} />}
 
       {/* 桌面端导航：全站侧边栏（含播放页），仅管理台用顶部导航 - 固定在根布局，避免页面切换时重新渲染 */}
       {isAdmin ? <TopNav /> : <SideNav />}
 
-      {/* 移动端底部导航 - 固定在根布局，避免页面切换时重新渲染 */}
-      <div className='md:hidden'>
-        <MobileBottomNav />
-      </div>
+      {/* 移动端底部导航 - 固定在根布局，避免页面切换时重新渲染。
+          播放页不渲染（沉浸看片），由 MobileBottomNav 的 effect 同步
+          body 上的占位标记，main 的底部留白会自动归零。 */}
+      {!isPlay && (
+        <div className='md:hidden'>
+          <MobileBottomNav />
+        </div>
+      )}
     </>
   );
 };

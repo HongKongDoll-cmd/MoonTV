@@ -37,6 +37,16 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
   const pathname = usePathname();
   const { startLoading } = useNavigationLoading();
 
+  /**
+   * 标记 body 上"有底部导航"，让 main 的底部留白只在需要时生效（4.6.6）。
+   * 播放页不渲染本组件 → 卸载时移除标记 → 留白自动归零，
+   * 否则隐藏导航后会多出一截空白。
+   */
+  useEffect(() => {
+    document.body.setAttribute('data-bottom-nav', 'on');
+    return () => document.body.removeAttribute('data-bottom-nav');
+  }, []);
+
   // 当前激活路径：优先使用传入的 activePath，否则回退到浏览器地址
   const currentActive = activePath ?? pathname;
 

@@ -69,7 +69,7 @@ export default function CacheManager({ isOpen, onClose }: CacheManagerProps) {
 
   return (
     <div className='fixed inset-0 z-[3000] flex items-center justify-center bg-black/50 p-4'>
-      <div className='w-full max-w-lg max-h-[80vh] flex flex-col rounded-2xl bg-white dark:bg-gray-800 shadow-xl'>
+      <div className='w-full max-w-lg max-h-[80dvh] flex flex-col rounded-2xl bg-white dark:bg-gray-800 shadow-xl'>
         {/* 头部 */}
         <div className='flex items-center justify-between border-b border-gray-200/60 dark:border-gray-700/60 px-5 py-4'>
           <div>
