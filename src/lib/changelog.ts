@@ -11,6 +11,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.6.9",
+    date: "2026-10-27",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+    "修复快捷键重复响应导致空格无法播放/暂停: 关闭 ArtPlayer 内置热键, Esc 退出全屏改由可自定义快捷键接管",
+    "修复手动选择弹幕源后旧弹幕仍在屏幕显示的问题",
+    "修复重复选择同一番剧/集数时弹幕不重新加载、界面毫无反应的问题",
+    "修复弹幕自动匹配被切集打断后「正在加载弹幕」提示一直不消失"
+    ]
+  },
+  {
     version: "4.6.8",
     date: "2026-10-27",
     added: [

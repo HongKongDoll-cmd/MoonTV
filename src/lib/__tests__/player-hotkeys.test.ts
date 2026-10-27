@@ -9,7 +9,8 @@ describe('PLAYER_HOTKEY_ENABLED', () => {
     // 传对象会抛 "'option.hotkey' require 'boolean' type"，
     // 直接导致播放器创建失败、页面卡在「播放器初始化失败」
     expect(typeof PLAYER_HOTKEY_ENABLED).toBe('boolean');
-    expect(PLAYER_HOTKEY_ENABLED).toBe(true);
+    // 4.6.9：内置热键关闭，改由可自定义的全局快捷键接管（避免空格被 toggle 两次）
+    expect(PLAYER_HOTKEY_ENABLED).toBe(false);
   });
 });
 

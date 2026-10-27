@@ -14,8 +14,20 @@
  *    单击与双击是鼠标事件而不是键盘事件。说明表照实写，别凭空多写。
  */
 
-/** 是否开启播放器热键（ArtPlayer 的 option.hotkey，boolean） */
-export const PLAYER_HOTKEY_ENABLED = true;
+/**
+ * 是否开启 ArtPlayer **内置**热键（option.hotkey，boolean）。
+ *
+ * 4.6.9 起改为 **false**：项目自己有可自定义的全局快捷键
+ * （`lib/shortcuts.ts` + `handleKeyboardShortcuts`），两套同时监听
+ * 会重复响应 —— 空格会先 toggle 一次、再被内置的 toggle 回来，
+ * 表现就是「按空格完全没反应、无法播放/暂停」。
+ *
+ * 内置热键只有 6 个（空格 / ←→ / ↑↓ / Esc / 单击 / 双击），
+ * 而全局快捷键有 13 个动作且可自定义，覆盖更全；Esc 退出全屏
+ * 已由新增的 `exitFullscreen` 动作接管。
+ * 单击 / 双击画面属于鼠标事件，不受此开关影响。
+ */
+export const PLAYER_HOTKEY_ENABLED = false;
 
 /** 快退快进步长（秒），取自 ArtPlayer 5.3 内部常量 SEEK_STEP */
 export const PLAYER_SEEK_STEP = 5;

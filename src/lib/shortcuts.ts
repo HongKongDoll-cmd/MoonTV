@@ -20,6 +20,7 @@ export type ShortcutActionId =
   | 'volumeUp'
   | 'volumeDown'
   | 'toggleFullscreen'
+  | 'exitFullscreen'
   | 'prevEpisode'
   | 'nextEpisode'
   | 'toggleMute'
@@ -51,6 +52,8 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   { id: 'volumeUp', label: '音量 +', defaultKeys: 'arrowup', customizable: true },
   { id: 'volumeDown', label: '音量 -', defaultKeys: 'arrowdown', customizable: true },
   { id: 'toggleFullscreen', label: '全屏切换', defaultKeys: 'f', customizable: true },
+  // 4.6.9：关闭 ArtPlayer 内置热键后，Esc 退出全屏改由这里接管
+  { id: 'exitFullscreen', label: '退出全屏', defaultKeys: 'escape', customizable: true },
   { id: 'prevEpisode', label: '上一集', defaultKeys: 'alt+arrowleft', customizable: true },
   { id: 'nextEpisode', label: '下一集', defaultKeys: 'alt+arrowright', customizable: true },
   { id: 'toggleMute', label: '静音切换', defaultKeys: 'm', customizable: true },

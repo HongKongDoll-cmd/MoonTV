@@ -1595,6 +1595,15 @@ export function usePlayEngine() {
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
       }
+      /**
+       * 4.6.9：取消后必须复位「正在加载弹幕」。
+       *
+       * 原实现只在正常跑完循环时复位，而循环里 `if (aborted) return`
+       * 是直接跳出函数 —— 切集/换源打断匹配后，提示会一直挂着不消失。
+       * 依赖变化时本清理先执行（置 false），下一个 effect 再置 true，
+       * 顺序正确，不会把新一轮的加载态误清掉。
+       */
+      setIsDanmakuLoading(false);
     };
   }, [
     currentEpisodeIndex,
@@ -2193,6 +2202,24 @@ export function usePlayEngine() {
     run('toggleFullscreen', () => {
       if (!art) return false;
       art.fullscreen = !art.fullscreen;
+      return true;
+    });
+
+    /**
+     * 退出全屏（4.6.9）。
+     *
+     * 关闭 ArtPlayer 内置热键后，原本由它处理的 Esc 退出网页全屏会失效，
+     * 这里补回来。**不在全屏时不接管** —— 否则会把 Esc 吞掉，
+     * 影响弹窗关闭等原生行为。
+     */
+    run('exitFullscreen', () => {
+      if (!art) return false;
+      if (!art.fullscreen && !art.fullscreenWeb) return false;
+      if (art.fullscreen) {
+        art.fullscreen = false;
+      } else {
+        art.fullscreenWeb = false;
+      }
       return true;
     });
 
@@ -3723,6 +3750,30 @@ export function usePlayEngine() {
 
   const handleDanmakuSelect = (anime: AnimeOption, episodeNumber?: number) => {
     const sourceName = anime.animeTitle;
+
+    /**
+     * 4.6.9：手动选源后必须做两件事，否则界面看着像"没反应"：
+     *
+     * 1. **清掉旧弹幕**。加载新源要几秒，这段时间屏幕上还是上一部片子的
+     *    弹幕，用户会以为选错了源。
+     * 2. **重置两个已加载守卫**。加载逻辑里有 `url !== lastDanmakuUrlRef.current`
+     *    的判断，重复选同一番剧/同一集时 URL 不变，会被直接跳过 ——
+     *    表现为点了没任何变化（既不重新加载，也没有提示）。
+     */
+    lastDanmakuUrlRef.current = '';
+    correctedDanmakuUrlRef.current = '';
+    const plugin = danmukuPluginInstanceRef.current;
+    if (plugin) {
+      try {
+        plugin.config({ danmuku: [] });
+        void Promise.resolve(plugin.load?.()).catch(() => {
+          /* 清空失败不影响后续加载 */
+        });
+      } catch {
+        /* 插件未就绪时忽略 */
+      }
+    }
+
     setSelectedDanmakuSource(sourceName);
     selectedDanmakuSourceRef.current = sourceName;
     setShowDanmakuSelector(false);
