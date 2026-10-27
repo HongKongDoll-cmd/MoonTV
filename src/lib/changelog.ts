@@ -11,6 +11,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.6.7",
+    date: "2026-10-27",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+    "修复手机浏览器卡在登录页反复刷新: 鉴权失败时清除无效 cookie, 不再带着坏 cookie 无限往返",
+    "登录成功后先校验登录态是否真的写入, 手机禁用 Cookie 或处于无痕模式时给出明确提示而不是静默循环",
+    "新增 /api/auth-check 登录态探针, 防止登录后立刻被鉴权拦回"
+    ]
+  },
+  {
     version: "4.6.6",
     date: "2026-10-27",
     added: [

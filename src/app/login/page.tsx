@@ -88,6 +88,32 @@ function LoginPageClient() {
     }
   }, []);
 
+  /**
+   * 跳转前确认登录态**真的落地**了（4.6.7）。
+   *
+   * 手机浏览器可能因为「禁用 Cookie」「无痕/隐私模式」「内置浏览器策略」
+   * 拒收 Set-Cookie。此时前端若直接 replace，会立刻被 middleware 踢回
+   * /login，再跳、再被踢 —— 用户只看到「一直重复刷新」，完全不知道原因。
+   *
+   * 用 /api/auth-check 探一次（它受 middleware 保护，能走到即代表鉴权通过）：
+   * 401 说明 cookie 没存住，把原因直接告诉用户。
+   * 返回 false 表示不该继续跳转。
+   */
+  const ensureSessionPersisted = async (): Promise<boolean> => {
+    try {
+      const probe = await fetch('/api/auth-check', { cache: 'no-store' });
+      if (probe.status === 401) {
+        setError(
+          '登录成功但浏览器没有保存登录状态。请检查是否禁用了 Cookie、是否处于无痕模式，或换一个浏览器试试。'
+        );
+        return false;
+      }
+    } catch {
+      // 探测请求本身失败（网络抖动）时不阻断，按原流程跳转
+    }
+    return true;
+  };
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
@@ -106,6 +132,7 @@ function LoginPageClient() {
       });
 
       if (res.ok) {
+        if (!(await ensureSessionPersisted())) return;
         const redirect = searchParams.get('redirect') || '/';
         router.replace(redirect);
       } else if (res.status === 401) {
@@ -135,6 +162,7 @@ function LoginPageClient() {
       });
 
       if (res.ok) {
+        if (!(await ensureSessionPersisted())) return;
         const redirect = searchParams.get('redirect') || '/';
         router.replace(redirect);
       } else {
