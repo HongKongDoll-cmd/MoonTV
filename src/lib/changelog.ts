@@ -11,6 +11,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.7.0",
+    date: "2026-10-28",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+    "修复标题含括号或特殊符号时搜不到播放源: 向下游源站只送主标题, 完整标题仍用于展示与播放",
+    "修复缓冲写满(bufferFullError)后画面回退、音画错位: 命中时按比例收紧字节/时长/回看预算并保留下限"
+    ]
+  },
+  {
     version: "4.6.9",
     date: "2026-10-27",
     added: [

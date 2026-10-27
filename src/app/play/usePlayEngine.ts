@@ -131,6 +131,7 @@ import {
   formatTime,
   pickDanmakuSettings,
   saveDanmakuSettings,
+  shrinkBufferBudget,
   SkipConfig,
 } from './play-utils';
 
@@ -2923,6 +2924,31 @@ export function usePlayEngine() {
             });
 
             hls.on(Hls.Events.ERROR, function (event: any, data: any) {
+              /**
+               * 4.7.0：缓冲写满（BUFFER_FULL_ERROR）。
+               *
+               * hls.js 会尝试自己清理，但反复触发时容易出现**画面回退 /
+               * 音画错位**（清理丢的是播放头附近的已解码数据）。
+               * 这里按比例收紧三档预算，让它稳定在可持续的规模。
+               * 注意**不在这里 return**：下面的 fatal 分支仍要照常处理，
+               * 写满若升级为 fatal 仍需走恢复/换源流程。
+               */
+              if (data?.details === Hls.ErrorDetails?.BUFFER_FULL_ERROR) {
+                const next = shrinkBufferBudget({
+                  maxBufferSize: hls.config.maxBufferSize,
+                  maxBufferLength: hls.config.maxBufferLength,
+                  backBufferLength: hls.config.backBufferLength,
+                });
+                hls.config.maxBufferSize = next.maxBufferSize;
+                hls.config.maxBufferLength = next.maxBufferLength;
+                hls.config.backBufferLength = next.backBufferLength;
+                console.warn(
+                  `缓冲写满，已收紧预算: ${(next.maxBufferSize / 1e6).toFixed(
+                    0
+                  )}MB / ${next.maxBufferLength}s / 回看 ${next.backBufferLength}s`
+                );
+              }
+
               if (!data?.fatal) {
                 // 非致命错误 hls.js 会自行重试，这里只留痕便于排障
                 console.warn(

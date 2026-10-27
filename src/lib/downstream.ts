@@ -2,6 +2,8 @@ import { API_CONFIG, ApiSite, getConfig } from '@/lib/config';
 import { SearchResult } from '@/lib/types';
 import { cleanHtmlTags } from '@/lib/utils';
 
+import { buildSearchQuery } from './search-query';
+
 interface ApiSearchItem {
   vod_id: string;
   vod_name: string;
@@ -110,7 +112,17 @@ export async function* searchFromApiStream(
   parallel = true,
   timeout?: number
 ): AsyncGenerator<SearchResult[], void, unknown> {
-  const apiUrl = apiSite.api + API_CONFIG.search.path + encodeURIComponent(query);
+  /**
+   * 4.7.0：发给源站的是**主标题**。
+   *
+   * 豆瓣标题常带 `(2021)` / `（国语版）` / `【高清】` 这类后缀，而采集站
+   * 标题里没有，它们的 `wd=` 是模糊匹配 —— 带括号查询会一条都搜不到，
+   * 表现为「豆瓣点进来能看，搜索/换源却找不到播放源」。
+   * 完整标题仍保留在返回结果与播放记录里，不受影响。
+   */
+  const searchQuery = buildSearchQuery(query) || query;
+  const apiUrl =
+    apiSite.api + API_CONFIG.search.path + encodeURIComponent(searchQuery);
 
   const response = await fetchWithTimeout(apiUrl, { headers: API_CONFIG.search.headers }, timeout);
   if (!response.ok) return;
@@ -136,7 +148,7 @@ export async function* searchFromApiStream(
         const pageUrl =
           apiSite.api +
           API_CONFIG.search.pagePath
-            .replace('{query}', encodeURIComponent(query))
+            .replace('{query}', encodeURIComponent(searchQuery))
             .replace('{page}', page.toString());
 
         const promise = (async () => {
@@ -167,7 +179,7 @@ export async function* searchFromApiStream(
         const pageUrl =
           apiSite.api +
           API_CONFIG.search.pagePath
-            .replace('{query}', encodeURIComponent(query))
+            .replace('{query}', encodeURIComponent(searchQuery))
             .replace('{page}', page.toString());
 
         const pageRes = await fetchWithTimeout(pageUrl, { headers: API_CONFIG.search.headers }, timeout);

@@ -550,3 +550,57 @@ export function createCustomHlsLoader(
     }
   };
 }
+
+// ---------------------------------------------------------------------------
+// 缓冲预算自适应（4.7.0）
+// ---------------------------------------------------------------------------
+
+/** hls.js 里与「能缓冲多少」相关的三个配置项 */
+export interface BufferBudget {
+  /** 缓冲字节上限 */
+  maxBufferSize: number;
+  /** 前向缓冲时长目标（秒） */
+  maxBufferLength: number;
+  /** 保留的已播放时长（秒） */
+  backBufferLength: number;
+}
+
+/** 收紧比例：一次写满就砍到 70% */
+export const BUFFER_SHRINK_RATIO = 0.7;
+
+/** 各档下限：再收下去就没法正常播放了 */
+export const BUFFER_BUDGET_FLOOR: BufferBudget = {
+  maxBufferSize: 30 * 1000 * 1000, // 30MB
+  maxBufferLength: 30, // 30s
+  backBufferLength: 10, // 10s
+};
+
+/**
+ * 命中 `BUFFER_FULL_ERROR` 时按比例收紧缓冲预算。
+ *
+ * 为什么需要：缓冲写满后 hls.js 会尝试自己清理，但反复触发时容易出现
+ * **画面回退 / 音画错位** —— 清理时丢掉的是播放头附近的已解码数据。
+ * 与其反复清理，不如把「能缓冲多少」降下来，让它稳定在可持续的规模。
+ *
+ * 三条约束：
+ * - **按比例**而不是固定值：不同码率的片子需要的缓冲量差好几倍；
+ * - **有下限**：否则反复命中会把预算收到 0，直接播不动；
+ * - **纯函数**：返回新对象，调用方决定何时写回 hls.config
+ *   （换档时保留降级结果，换片重建实例时自然回到初始值）。
+ */
+export function shrinkBufferBudget(current: BufferBudget): BufferBudget {
+  return {
+    maxBufferSize: Math.max(
+      BUFFER_BUDGET_FLOOR.maxBufferSize,
+      Math.round(current.maxBufferSize * BUFFER_SHRINK_RATIO)
+    ),
+    maxBufferLength: Math.max(
+      BUFFER_BUDGET_FLOOR.maxBufferLength,
+      Math.round(current.maxBufferLength * BUFFER_SHRINK_RATIO)
+    ),
+    backBufferLength: Math.max(
+      BUFFER_BUDGET_FLOOR.backBufferLength,
+      Math.round(current.backBufferLength * BUFFER_SHRINK_RATIO)
+    ),
+  };
+}
