@@ -12,6 +12,7 @@
 
 import { filterAdSegments } from './m3u8-ad-filter';
 import { parseM3U8 } from './m3u8-downloader';
+import { fetchSegmentWithRetry } from './segment-retry';
 import {
   type CacheSettings,
   buildSegmentCacheKey,
@@ -458,26 +459,43 @@ export class VideoPrefetcher {
             continue;
           }
 
-          const startedAt = Date.now();
-          const response = await fetch(cacheKey, {
+          /**
+           * 4.7.3：带退避重试地下载。
+           *
+           * 原来失败就直接 `continue`，而掉队的那个分片正是播放到该位置
+           * 要现拉的那一段 —— 表现就是「明明在缓存，播到某处还是卡一下」。
+           * 只重试网络错误与 5xx/408/429；401/403/404/410 这类确定性失败
+           * 立即放弃，免得白等 3 秒还占着并发位。
+           */
+          const result = await fetchSegmentWithRetry(cacheKey, {
             signal,
-            credentials: 'omit',
-            cache: 'no-store',
+            onRetry: ({ attempt, delayMs, reason, status }) => {
+              this.emit(options, {
+                message: `片段 ${segmentIndex + 1} 第 ${attempt} 次失败（${
+                  reason === 'http' ? status : '网络异常'
+                }），${Math.round(delayMs / 1000)}s 后重试`,
+              });
+            },
           });
-          if (!response.ok) {
+
+          if (!result.ok) {
+            // 取消：不再继续这个 worker
+            if (result.reason === 'aborted') return;
             this.emit(options, {
-              message: `片段 ${segmentIndex + 1} 预取失败 ${response.status}`,
+              message: `片段 ${segmentIndex + 1} 预取失败${
+                result.status ? ` ${result.status}` : ''
+              }`,
             });
             continue;
           }
 
-          const buffer = await response.arrayBuffer();
-          const costMs = Math.max(1, Date.now() - startedAt);
+          const buffer = result.buffer;
+          const costMs = result.costMs;
 
           const putResult = await putCachedSegmentResilient(
             cacheKey,
             buffer,
-            response.headers.get('Content-Type'),
+            result.contentType,
             settings
           );
           if (putResult === 'quota') {

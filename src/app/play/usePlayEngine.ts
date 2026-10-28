@@ -6,6 +6,12 @@ import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  decideDownshift,
+  DOWNSHIFT_EXHAUSTED_KEY,
+  downshiftNoticeKey,
+  recordStall,
+} from '@/lib/adaptive-quality';
+import {
   setSettingSwitch,
   setSettingTooltip,
   updateSettingPreservingPanel,
@@ -434,6 +440,10 @@ export function usePlayEngine() {
   const stallTimesRef = useRef<number[]>([]);
   // 记录已提示过的降档状态，避免 notice 反复弹
   const downshiftNoticeRef = useRef<string | null>(null);
+  /** 最近一次拖动的时间戳：拖动必然 waiting，那一下不算网络卡顿（4.7.3） */
+  const lastSeekAtRef = useRef<number | null>(null);
+  /** 最近一次手动切换画质的时间戳：换档要重新缓冲，同理不计入（4.7.3） */
+  const lastLevelSwitchAtRef = useRef<number | null>(null);
 
   const [isBlockAdChanged, setIsBlockAdChanged] = useState(false);
   /**
@@ -3136,6 +3146,8 @@ export function usePlayEngine() {
               }
               stallTimesRef.current = [];
               downshiftNoticeRef.current = null;
+              // 换档后要重新填充缓冲区，这段期间的卡顿不算网络问题
+              lastLevelSwitchAtRef.current = Date.now();
 
               // 记忆的是"画面高度"而非档位下标：换集/换源后档位数量与顺序都会变，
               // 记下标会指向错误的档位。
@@ -3569,6 +3581,16 @@ export function usePlayEngine() {
       // ---------------------------------------------------------------------
       // 前向预缓存：窗口维护
       // ---------------------------------------------------------------------
+      /**
+       * 记录拖动时刻（4.7.3）。
+       *
+       * 必须用 `seeking` 而不是 `seeked`：seeked 要等目标位置缓冲完才触发，
+       * 那时 waiting 早就发生过了，保护窗口就成了马后炮。
+       */
+      artPlayerRef.current.on('video:seeking', () => {
+        lastSeekAtRef.current = Date.now();
+      });
+
       // seek 后窗口可能不再覆盖目标位置；ensure 内部会判断，窗口够用时零成本返回
       artPlayerRef.current.on('video:seeked', () => {
         ensurePrefetchCurrent(artPlayerRef.current.currentTime || 0);
@@ -3579,46 +3601,51 @@ export function usePlayEngine() {
       artPlayerRef.current.on('video:waiting', () => {
         prefetcherRef.current.setThrottled(true);
 
-        // —— 弱网自动降档 ——
-        // seek/换源也会触发 waiting，因此 5 秒内的重复事件只记一次；
-        // 2 分钟内累计 4 次视为网络跟不上当前档位，把 ABR 上限压一档。
+        /**
+         * —— 弱网自动降档（4.7.3 重构）——
+         *
+         * 判定逻辑抽到 lib/adaptive-quality.ts，关键在于**记卡顿之前**先过保
+         * 护窗口：拖动进度和切换画质都会触发 waiting，原来这些也被计入
+         * 「网络卡顿」，用户拖三次进度就被降了画质。现在拖动后 4 秒、
+         * 换档后 3 秒内的 waiting 直接不计入统计。
+         */
         const now = Date.now();
-        const stalls = stallTimesRef.current;
-        if (stalls.length === 0 || now - stalls[stalls.length - 1] >= 5_000) {
-          stalls.push(now);
-        }
-        while (stalls.length > 0 && now - stalls[0] > 120_000) {
-          stalls.shift();
-        }
+        stallTimesRef.current = recordStall(stallTimesRef.current, now, {
+          lastSeekAt: lastSeekAtRef.current,
+          lastLevelSwitchAt: lastLevelSwitchAtRef.current,
+        });
 
         const hls = artPlayerRef.current?.video?.hls;
         if (!hls || !hls.autoLevelEnabled) return; // 手动档位由用户自己负责
-        if (stalls.length < 4) return;
 
         const currentLevel =
           typeof hls.loadLevel === 'number' && hls.loadLevel >= 0
             ? hls.loadLevel
             : typeof hls.currentLevel === 'number' && hls.currentLevel >= 0
             ? hls.currentLevel
-            : 0;
+            : -1;
         const cap =
           typeof hls.autoLevelCapping === 'number' && hls.autoLevelCapping >= 0
             ? hls.autoLevelCapping
             : Number.POSITIVE_INFINITY;
-        const nextCap = Math.max(0, Math.min(currentLevel, cap) - 1);
 
-        if (cap === 0) {
+        const decision = decideDownshift(stallTimesRef.current, currentLevel, cap);
+
+        if (decision.action === 'exhausted') {
           // 已经是最低档还在卡：提示换源，不再重复弹
-          if (downshiftNoticeRef.current !== 'min') {
-            downshiftNoticeRef.current = 'min';
+          if (downshiftNoticeRef.current !== DOWNSHIFT_EXHAUSTED_KEY) {
+            downshiftNoticeRef.current = DOWNSHIFT_EXHAUSTED_KEY;
             showPlayerNotice('已降至最低画质仍卡顿，建议在右侧换一个播放源');
           }
           return;
         }
 
-        hls.autoLevelCapping = nextCap;
-        if (downshiftNoticeRef.current !== `cap-${nextCap}`) {
-          downshiftNoticeRef.current = `cap-${nextCap}`;
+        if (decision.action !== 'downshift') return;
+
+        hls.autoLevelCapping = decision.nextCap;
+        const key = downshiftNoticeKey(decision.nextCap);
+        if (downshiftNoticeRef.current !== key) {
+          downshiftNoticeRef.current = key;
           showPlayerNotice('检测到网络较慢，已自动降低画质以减少卡顿');
         }
       });
