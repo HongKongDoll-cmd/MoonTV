@@ -120,3 +120,91 @@ export function describeDanmakuThrottle<T>(
     dropped: Math.max(0, total - result.length),
   };
 }
+
+// ---------------------------------------------------------------------------
+// 弹幕密度（4.7.2）
+// ---------------------------------------------------------------------------
+
+/**
+ * 弹幕密度档位。
+ *
+ * 同一份弹幕在不同片子上观感差很多：综艺/名场面一秒钟几十条，再怎么等距取样
+ * 也挤；而冷门片子本来就没几条，抽稀等于把人家的弹幕抽没。所以给用户三档，
+ * 而不是把阈值写死。
+ */
+export type DanmakuDensity = 'sparse' | 'standard' | 'dense';
+
+export const DANMAKU_DENSITY_OPTIONS: {
+  value: DanmakuDensity;
+  label: string;
+  hint: string;
+}[] = [
+  { value: 'sparse', label: '稀疏', hint: '每秒最多 5 条 / 单集 300 条' },
+  { value: 'standard', label: '标准', hint: '每秒最多 10 条 / 单集 600 条' },
+  { value: 'dense', label: '密集', hint: '每秒最多 20 条 / 单集 1500 条' },
+];
+
+/**
+ * 各档位的阈值。
+ *
+ * `standard` 必须与 {@link DEFAULT_DANMAKU_THROTTLE} 完全一致 ——
+ * 那是 4.6.3 上线后一直在用的参数，作为默认档才不会让老用户觉得"变味了"。
+ */
+export const DANMAKU_DENSITY_PRESETS: Record<
+  DanmakuDensity,
+  Required<DanmakuThrottleOptions>
+> = {
+  sparse: { maxPerSecond: 5, maxTotal: 300 },
+  standard: { maxPerSecond: 10, maxTotal: 600 },
+  dense: { maxPerSecond: 20, maxTotal: 1500 },
+};
+
+/** 默认档位：与既有行为一致 */
+export const DEFAULT_DANMAKU_DENSITY: DanmakuDensity = 'standard';
+
+export const DANMAKU_DENSITY_STORAGE_KEY = 'moontv_danmaku_density';
+
+export function isDanmakuDensity(value: unknown): value is DanmakuDensity {
+  return value === 'sparse' || value === 'standard' || value === 'dense';
+}
+
+/** 读取密度设置；存储损坏或未设置时回退默认档 */
+export function loadDanmakuDensity(): DanmakuDensity {
+  if (typeof window === 'undefined') return DEFAULT_DANMAKU_DENSITY;
+  try {
+    const raw = window.localStorage.getItem(DANMAKU_DENSITY_STORAGE_KEY);
+    return isDanmakuDensity(raw) ? raw : DEFAULT_DANMAKU_DENSITY;
+  } catch {
+    return DEFAULT_DANMAKU_DENSITY;
+  }
+}
+
+export function saveDanmakuDensity(density: DanmakuDensity): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(DANMAKU_DENSITY_STORAGE_KEY, density);
+  } catch {
+    // 隐私模式下 localStorage 不可用：静默失败，只是记不住偏好
+  }
+}
+
+/**
+ * 密度 → 限流参数。
+ *
+ * 非法值一律按默认档处理：这个函数在弹幕加载的热路径上调用，
+ * 不该因为存了个脏值就抛错或返回 0 条。
+ */
+export function densityToThrottleOptions(
+  density: DanmakuDensity | string | null | undefined
+): Required<DanmakuThrottleOptions> {
+  return isDanmakuDensity(density)
+    ? DANMAKU_DENSITY_PRESETS[density]
+    : DANMAKU_DENSITY_PRESETS[DEFAULT_DANMAKU_DENSITY];
+}
+
+/** 档位的中文名，用于设置面板回显 */
+export function describeDanmakuDensity(density: DanmakuDensity): string {
+  return (
+    DANMAKU_DENSITY_OPTIONS.find((o) => o.value === density)?.label ?? '标准'
+  );
+}

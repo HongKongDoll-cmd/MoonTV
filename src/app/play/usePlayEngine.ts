@@ -24,7 +24,15 @@ import {
   loadDanmakuFilterConfig,
   saveDanmakuFilterConfig,
 } from '@/lib/danmaku-filter';
-import { throttleDanmaku } from '@/lib/danmaku-throttle';
+import {
+  type DanmakuDensity,
+  DANMAKU_DENSITY_OPTIONS,
+  densityToThrottleOptions,
+  describeDanmakuDensity,
+  loadDanmakuDensity,
+  saveDanmakuDensity,
+  throttleDanmaku,
+} from '@/lib/danmaku-throttle';
 import {
   deleteSkipConfig,
   generateStorageKey,
@@ -52,6 +60,7 @@ import {
   resolveLevelHeight,
   savePreferredQualityHeight,
 } from '@/lib/hls-quality';
+import { requestPlayHelp } from '@/lib/play-help';
 import {
   DEFAULT_PLAYBACK_RATE,
   loadPlaybackRate,
@@ -63,6 +72,7 @@ import { describeHlsError, PlaybackRecovery } from '@/lib/playback-recovery';
 import { getDefaultPlaybackSaveInterval } from '@/lib/playback-settings';
 import { DEFAULT_VOLUME, loadVolume, saveVolume } from '@/lib/playback-volume';
 import { PLAYER_HOTKEY_ENABLED } from '@/lib/player-hotkeys';
+import { playerNotices, showPlayerNotice } from '@/lib/player-notices';
 import {
   buildScreenshotFilename,
   sanitizeFilenamePart,
@@ -199,6 +209,12 @@ const SHORTCUT_SETTING_NAME = '快捷键';
 
 /** 「弹幕屏蔽」设置项的 name */
 const DANMAKU_FILTER_SETTING_NAME = '弹幕屏蔽';
+
+/** 「弹幕密度」设置项的 name（4.7.2） */
+const DANMAKU_DENSITY_SETTING_NAME = '弹幕密度';
+
+/** 「操作说明」设置项的 name（4.7.2） */
+const PLAY_HELP_SETTING_NAME = '操作说明';
 
 /**
  * 快捷键子面板里「恢复默认键位」这一条的 value。
@@ -542,7 +558,14 @@ export function usePlayEngine() {
       if (!danmukuPluginInstanceRef.current) return;
       // 4.6.3 限流：采集站一集常几千条，全量灌进去会掉帧、切集卡顿。
       // 按秒 + 总量两级等距抽稀后再交给插件（保持时序，见 danmaku-throttle.ts）。
-      const throttled = throttleDanmaku(list);
+      // 4.7.2：按用户选的密度档位抽稀（稀疏 5/300、标准 10/600、密集 20/1500）
+      const throttled = throttleDanmaku(
+        list,
+        densityToThrottleOptions(loadDanmakuDensity())
+      );
+      // 记下**未抽稀**的原始列表：切换密度档位时就地重算，
+      // 不必重新请求弹幕接口，也不必等下一次切集才生效
+      rawDanmakuListRef.current = list;
       if (!throttled.length) return;
 
       danmukuPluginInstanceRef.current.config({ danmaku: throttled });
@@ -725,6 +748,8 @@ export function usePlayEngine() {
   const lastDanmakuUrlRef = useRef<string>(''); // 上一次加载的弹幕 URL
   /** 已应用「颜色修正」的弹幕地址，避免同一集重复解析 */
   const correctedDanmakuUrlRef = useRef<string>('');
+  /** 未抽稀的弹幕原文，供切换密度档位时就地重算（4.7.2） */
+  const rawDanmakuListRef = useRef<any[]>([]);
   const pendingDanmakuVisibleRestoreRef = useRef<boolean | null>(null); // 切集后待恢复的弹幕可见状态
 
   // ---- P1-5 / P1-6 相关 ----
@@ -1840,7 +1865,7 @@ export function usePlayEngine() {
     );
     try {
       if (artPlayerRef.current) {
-        artPlayerRef.current.notice.show = notice;
+        showPlayerNotice(notice);
       }
     } catch {
       // ArtPlayer 可能已销毁
@@ -1958,7 +1983,7 @@ export function usePlayEngine() {
 
     shortcutRecorderRef.current = actionId;
     if (artPlayerRef.current) {
-      artPlayerRef.current.notice.show = `请按下新的按键：${action.label}（Esc 取消）`;
+      showPlayerNotice(`请按下新的按键：${action.label}（Esc 取消）`);
     }
 
     // 把该条在面板上标成"待录入"，用户才知道系统在等他按键
@@ -1983,7 +2008,7 @@ export function usePlayEngine() {
     if (e.key === 'Escape') {
       shortcutRecorderRef.current = null;
       if (artPlayerRef.current) {
-        artPlayerRef.current.notice.show = '已取消改键';
+        showPlayerNotice('已取消改键');
       }
       return true;
     }
@@ -2025,9 +2050,9 @@ export function usePlayEngine() {
 
     if (artPlayerRef.current) {
       const suffix = conflictNames ? `（${conflictNames} 已恢复默认）` : '';
-      artPlayerRef.current.notice.show = `已绑定 ${formatKeyString(
+      showPlayerNotice(`已绑定 ${formatKeyString(
         keyString
-      )}${suffix}`;
+      )}${suffix}`);
     }
 
     refreshShortcutPanel();
@@ -2041,7 +2066,7 @@ export function usePlayEngine() {
     shortcutBindingsRef.current = resolveBindings({});
     shortcutRecorderRef.current = null;
     if (artPlayerRef.current) {
-      artPlayerRef.current.notice.show = '已恢复默认键位';
+      showPlayerNotice('已恢复默认键位');
     }
     refreshShortcutPanel();
   };
@@ -2082,7 +2107,7 @@ export function usePlayEngine() {
     const url = currentVideoUrlRef.current;
     if (!url) {
       if (artPlayerRef.current) {
-        artPlayerRef.current.notice.show = '当前没有可用的视频地址';
+        showPlayerNotice('当前没有可用的视频地址');
       }
       return;
     }
@@ -2096,9 +2121,9 @@ export function usePlayEngine() {
       // 浏览器**无法**判断客户端是否真的装了（不提供这种能力），
       // 所以不能在失败时说「未安装」—— 那是猜测。文案只陈述事实：
       // 已经把这个地址交给系统了，没反应就是没装或被拦。
-      artPlayerRef.current.notice.show = ok
+      showPlayerNotice(ok
         ? `已交给系统打开，若无反应请确认已安装 ${playerLabel}`
-        : `无法唤起 ${playerLabel}`;
+        : `无法唤起 ${playerLabel}`);
     }
   };
 
@@ -2178,7 +2203,7 @@ export function usePlayEngine() {
     run('volumeUp', () => {
       if (art && art.volume < 1) {
         art.volume = Math.round((art.volume + 0.1) * 10) / 10;
-        art.notice.show = `音量: ${Math.round(art.volume * 100)}`;
+        showPlayerNotice(`音量: ${Math.round(art.volume * 100)}`);
         return true;
       }
       return false;
@@ -2187,7 +2212,7 @@ export function usePlayEngine() {
     run('volumeDown', () => {
       if (art && art.volume > 0) {
         art.volume = Math.round((art.volume - 0.1) * 10) / 10;
-        art.notice.show = `音量: ${Math.round(art.volume * 100)}`;
+        showPlayerNotice(`音量: ${Math.round(art.volume * 100)}`);
         return true;
       }
       return false;
@@ -2196,7 +2221,7 @@ export function usePlayEngine() {
     run('toggleMute', () => {
       if (!art) return false;
       art.muted = !art.muted;
-      art.notice.show = art.muted ? '已静音' : '已取消静音';
+      showPlayerNotice(art.muted ? '已静音' : '已取消静音');
       return true;
     });
 
@@ -2248,7 +2273,7 @@ export function usePlayEngine() {
       plugin.config({ visible: nextVisible });
       danmakuConfigRef.current.visible = nextVisible;
       if (art) {
-        art.notice.show = nextVisible ? '弹幕已开启' : '弹幕已关闭';
+        showPlayerNotice(nextVisible ? '弹幕已开启' : '弹幕已关闭');
       }
       return true;
     });
@@ -2263,7 +2288,7 @@ export function usePlayEngine() {
       );
       if (clamped === art.playbackRate) return false;
       art.playbackRate = clamped;
-      art.notice.show = `倍速: ${clamped}x`;
+      showPlayerNotice(`倍速: ${clamped}x`);
       // 手动调节倍速属于明确意愿，直接记住
       savePlaybackRate(clamped);
       return true;
@@ -2754,16 +2779,16 @@ export function usePlayEngine() {
               );
               if (!created) {
                 if (artPlayerRef.current) {
-                  artPlayerRef.current.notice.show = isRegex
+                  showPlayerNotice(isRegex
                     ? '正则表达式不合法'
-                    : '关键词不能为空';
+                    : '关键词不能为空');
                 }
               } else {
                 const next = [...config.rules, created];
                 saveDanmakuFilterConfig({ rules: next });
                 applyDanmakuFilter(danmukuPluginInstanceRef.current, next);
                 if (artPlayerRef.current) {
-                  artPlayerRef.current.notice.show = `已屏蔽「${created.keyword}」`;
+                  showPlayerNotice(`已屏蔽「${created.keyword}」`);
                 }
               }
             }
@@ -2777,7 +2802,7 @@ export function usePlayEngine() {
             clearDanmakuFilterConfig();
             applyDanmakuFilter(danmukuPluginInstanceRef.current, []);
             if (artPlayerRef.current) {
-              artPlayerRef.current.notice.show = '已清空屏蔽规则';
+              showPlayerNotice('已清空屏蔽规则');
             }
             return refreshDanmakuFilterPanel();
           }
@@ -2791,14 +2816,67 @@ export function usePlayEngine() {
             saveDanmakuFilterConfig({ rules: next });
             applyDanmakuFilter(danmukuPluginInstanceRef.current, next);
             if (artPlayerRef.current) {
-              artPlayerRef.current.notice.show = target.enabled
+              showPlayerNotice(target.enabled
                 ? `已停用「${target.keyword}」`
-                : `已启用「${target.keyword}」`;
+                : `已启用「${target.keyword}」`);
             }
             return refreshDanmakuFilterPanel();
           }
           // 没命中任何规则（选项被重建过）：只回显，不白改 tooltip
           return buildDanmakuFilterTooltip(config);
+        },
+      };
+
+      /**
+       * 「弹幕密度」设置项（4.7.2）。
+       *
+       * 三档只是给 `throttleDanmaku` 换两组阈值（每秒上限 / 单集上限），
+       * 不碰插件自身的速度、字号那些显示参数 —— 那些是「看起来怎么样」，
+       * 这个是「屏幕上同时有多少」，两件事，别混在一个开关里。
+       *
+       * 切换后**就地重算**：`rawDanmakuListRef` 存的是未抽稀的原文，
+       * 直接按新档位再抽一次覆盖给插件，用户不必切集才能看到效果。
+       */
+      const danmakuDensitySettingItem = {
+        name: DANMAKU_DENSITY_SETTING_NAME,
+        html: DANMAKU_DENSITY_SETTING_NAME,
+        tooltip: describeDanmakuDensity(loadDanmakuDensity()),
+        selector: DANMAKU_DENSITY_OPTIONS.map((opt) => ({
+          html: opt.label,
+          value: opt.value,
+          tooltip: opt.hint,
+          default: opt.value === loadDanmakuDensity(),
+        })),
+        onSelect: function (item: any) {
+          const value = item?.value;
+          if (
+            value !== 'sparse' &&
+            value !== 'standard' &&
+            value !== 'dense'
+          ) {
+            return describeDanmakuDensity(loadDanmakuDensity());
+          }
+
+          saveDanmakuDensity(value as DanmakuDensity);
+
+          // 就地重算：原始列表还在 ref 里，不必重新请求弹幕接口
+          const raw = rawDanmakuListRef.current;
+          const plugin = danmukuPluginInstanceRef.current;
+          if (raw.length && plugin) {
+            const next = throttleDanmaku(
+              raw,
+              densityToThrottleOptions(value)
+            );
+            plugin.config({ danmaku: next });
+            void Promise.resolve(plugin.load?.()).catch(() => {
+              /* 重新灌入失败时保持原样，不影响播放 */
+            });
+            showPlayerNotice(
+              `${describeDanmakuDensity(value)}：${next.length} 条弹幕`
+            );
+          }
+
+          return describeDanmakuDensity(value as DanmakuDensity);
         },
       };
 
@@ -3167,6 +3245,7 @@ export function usePlayEngine() {
                   setShowDanmakuSelector(true);
                 },
               },
+              danmakuDensitySettingItem,
               danmakuFilterSettingItem,
             ],
           },
@@ -3272,6 +3351,19 @@ export function usePlayEngine() {
               return newVal ? '当前开启' : '当前关闭';
             },
           },
+          // ---- 「操作说明」：手势 + 快捷键（4.7.2）----
+          //
+          // 这里只做「唤起」，弹层本体在 PlayClient（需要全屏 portal）。
+          // 用窗口事件通知，不 through props —— 设置面板是 ArtPlayer 的
+          // 纯数据配置，塞不进 React 回调。
+          {
+            name: PLAY_HELP_SETTING_NAME,
+            html: PLAY_HELP_SETTING_NAME,
+            tooltip: '手势 · 快捷键',
+            onClick: function () {
+              requestPlayHelp();
+            },
+          },
         ],
         // 控制栏配置
         controls: [
@@ -3350,10 +3442,9 @@ export function usePlayEngine() {
                 const message =
                   err instanceof Error ? err.message : String(err);
                 if (/tainted|SecurityError|insecure/i.test(message)) {
-                  art.notice.show =
-                    '当前片源限制截图（跨域保护），可先下载后再截图';
+                  showPlayerNotice('当前片源限制截图（跨域保护），可先下载后再截图');
                 } else {
-                  art.notice.show = '截图失败';
+                  showPlayerNotice('截图失败');
                   console.warn('截图失败:', err);
                 }
                 throw err;
@@ -3372,7 +3463,7 @@ export function usePlayEngine() {
                     });
 
               const result = await saveScreenshot(dataUrl, filename);
-              art.notice.show = result.message;
+              showPlayerNotice(result.message);
               // 保留原生事件（下载插件等可能依赖），但不影响上面的提示
               try {
                 art.emit?.('screenshot', dataUrl);
@@ -3520,8 +3611,7 @@ export function usePlayEngine() {
           // 已经是最低档还在卡：提示换源，不再重复弹
           if (downshiftNoticeRef.current !== 'min') {
             downshiftNoticeRef.current = 'min';
-            artPlayerRef.current.notice.show =
-              '已降至最低画质仍卡顿，建议在右侧换一个播放源';
+            showPlayerNotice('已降至最低画质仍卡顿，建议在右侧换一个播放源');
           }
           return;
         }
@@ -3529,8 +3619,7 @@ export function usePlayEngine() {
         hls.autoLevelCapping = nextCap;
         if (downshiftNoticeRef.current !== `cap-${nextCap}`) {
           downshiftNoticeRef.current = `cap-${nextCap}`;
-          artPlayerRef.current.notice.show =
-            '检测到网络较慢，已自动降低画质以减少卡顿';
+          showPlayerNotice('检测到网络较慢，已自动降低画质以减少卡顿');
         }
       });
       artPlayerRef.current.on('video:playing', () => {
@@ -3618,7 +3707,9 @@ export function usePlayEngine() {
           // 之后的 ratechange 才是用户主动操作，可以写入偏好。
           isSwitchingSourceRef.current = false;
 
-          artPlayerRef.current.notice.show = '';
+          // 换源成功：清掉切换过程中残留的提示（新队列带了过期时间，
+          // 但「已切换到备用源」这类刚弹出的提示不该被清，所以只在此刻清空）
+          playerNotices.clear();
         }, 0);
 
         // 隐藏换源加载状态
@@ -3671,9 +3762,9 @@ export function usePlayEngine() {
           currentTime < skipConfigRef.current.intro_time
         ) {
           artPlayerRef.current.currentTime = skipConfigRef.current.intro_time;
-          artPlayerRef.current.notice.show = `已跳过片头 (${formatTime(
+          showPlayerNotice(`已跳过片头 (${formatTime(
             skipConfigRef.current.intro_time
-          )})`;
+          )})`);
         }
 
         // 跳过片尾
@@ -3691,9 +3782,9 @@ export function usePlayEngine() {
           } else {
             artPlayerRef.current.pause();
           }
-          artPlayerRef.current.notice.show = `已跳过片尾 (${formatTime(
+          showPlayerNotice(`已跳过片尾 (${formatTime(
             skipConfigRef.current.outro_time
-          )})`;
+          )})`);
         }
       });
 

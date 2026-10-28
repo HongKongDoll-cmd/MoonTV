@@ -8,6 +8,12 @@ import { createPortal } from 'react-dom';
 
 import { buildIntroSkipStorageKey } from '@/lib/intro-skip';
 import { readOpenListConfigFromCookie } from '@/lib/openlist';
+import {
+  hasSeenPlayHelpTip,
+  markPlayHelpTipSeen,
+  PLAY_HELP_OPEN_EVENT,
+} from '@/lib/play-help';
+import { playerNotices, showPlayerNotice } from '@/lib/player-notices';
 
 import AddDownloadModal from '@/components/AddDownloadModal';
 import { BackButton } from '@/components/BackButton';
@@ -16,9 +22,10 @@ import DanmakuSelector from '@/components/DanmakuSelector';
 import EpisodeSelector from '@/components/EpisodeSelector';
 import PageLayout from '@/components/PageLayout';
 
-import { HotkeyHelp } from './components/HotkeyHelp';
+import { PlayHelpButton, PlayHelpDialog } from './components/HotkeyHelp';
 import { IntroSkipButton } from './components/IntroSkipButton';
 import { PlaybackNetworkBar } from './components/PlaybackNetworkBar';
+import PlayerNoticeStack from './components/PlayerNoticeStack';
 import { ErrorView, LoadingView, VideoLoadingMask } from './components/PlayStatusView';
 import { SubtitlePanel } from './components/SubtitlePanel';
 import { VideoDetailPanel } from './components/VideoDetailPanel';
@@ -193,6 +200,58 @@ export default function PlayClient() {
     };
   }, []);
 
+  /**
+   * 「操作说明」弹层（4.7.2）。
+   *
+   * 两个入口：播放器顶部的按钮、以及设置面板里的开关。后者在
+   * `usePlayEngine` 内部，没有直连的 props 通道，用窗口事件通知
+   * （见 lib/play-help.ts）。
+   */
+  const [showPlayHelp, setShowPlayHelp] = useState(false);
+  useEffect(() => {
+    const open = () => setShowPlayHelp(true);
+    window.addEventListener(PLAY_HELP_OPEN_EVENT, open);
+    return () => window.removeEventListener(PLAY_HELP_OPEN_EVENT, open);
+  }, []);
+
+  /**
+   * 首次进入播放页提示一次「操作说明」入口（4.7.2）。
+   *
+   * 只在从没看过时提示：播放页是沉浸场景，每次都弹等于骚扰。
+   * 延迟 1.2s 是因为播放器构造、首个分片加载都在头几秒，
+   * 立刻弹会和「缓冲中」这类提示挤在一起。
+   */
+  /**
+   * 弹幕加载态并入堆叠提示（4.7.2）。
+   *
+   * 原来它是画面顶部居中的一条独立提示，和右上角的堆叠提示会**重叠**。
+   * 现在统一走队列：用固定 key 让它就地更新（切集时只改文本、不刷屏），
+   * 加载结束立刻 dismiss —— 所以 duration 给得很长，靠 dismiss 收尾，
+   * 避免长加载时提示提前消失。
+   */
+  useEffect(() => {
+    if (isDanmakuLoading) {
+      showPlayerNotice('正在加载弹幕…', {
+        key: 'danmaku-loading',
+        duration: 120000,
+      });
+    } else {
+      playerNotices.dismiss('danmaku-loading');
+    }
+  }, [isDanmakuLoading]);
+
+  useEffect(() => {
+    if (hasSeenPlayHelpTip()) return;
+    const timer = window.setTimeout(() => {
+      showPlayerNotice('点右上角「操作说明」可查看手势与快捷键', {
+        key: 'play-help-tip',
+        duration: 6000,
+      });
+      markPlayHelpTipSeen();
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   if (loading) {
     return (
       <PageLayout activePath='/play'>
@@ -284,10 +343,8 @@ export default function PlayClient() {
                       onStyleChange={changeSubtitleStyle}
                       initialPresetId={subtitleStyleId}
                     />
-                    {/* 手机没有物理键盘，这个入口只在宽屏显示 */}
-                    <span className='hidden md:flex'>
-                      <HotkeyHelp />
-                    </span>
+                    {/* 手机上也有说明（触摸操作那一段），只在超窄屏收起文字 */}
+                    <PlayHelpButton onClick={() => setShowPlayHelp(true)} />
                   </div>
                 </div>
 
@@ -337,16 +394,34 @@ export default function PlayClient() {
                     />
                   )}
 
-                {/* 弹幕加载提示 */}
-                {/* 弹幕加载提示。top-16 是为了避开上面的返回/标题操作层 ——
-                    两者都在顶部，重叠会互相挡住。 */}
-                {isDanmakuLoading && (
-                  <div className='absolute top-16 left-4 right-4 z-[400] flex justify-center'>
-                    <div className='bg-gray-800/90 text-white px-4 py-2 rounded-lg shadow-lg'>
-                      正在自动加载弹幕...
-                    </div>
-                  </div>
-                )}
+                {/* 播放器右上角堆叠提示（4.7.2）。
+                    替代原来单条 `art.notice.show`：那个会被后一条直接覆盖，
+                    而本项目不少提示是连续发生的（降档 → 切源 → 已恢复），
+                    用户根本来不及看。全屏时同样要 portal，否则会被 top layer 遮住。 */}
+                {isFullscreen && portalTarget
+                  ? createPortal(
+                      <PlayerNoticeStack fullscreen />,
+                      portalTarget
+                    )
+                  : <PlayerNoticeStack fullscreen={false} />}
+
+                {/* 操作说明弹层（4.7.2）。全屏时同样要 portal，
+                    否则会被 top layer 整个盖住、点了没反应。 */}
+                {isFullscreen && portalTarget
+                  ? createPortal(
+                      <PlayHelpDialog
+                        open={showPlayHelp}
+                        onClose={() => setShowPlayHelp(false)}
+                      />,
+                      portalTarget
+                    )
+                  : (
+                    <PlayHelpDialog
+                      open={showPlayHelp}
+                      onClose={() => setShowPlayHelp(false)}
+                    />
+                  )}
+
 
                 {/* 4.6.3 曾把它移进播放器外层容器，但 ArtPlayer 全屏的目标是
                     template.$player，那个容器并不在 fullscreen 里，用户实测
