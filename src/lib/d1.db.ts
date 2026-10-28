@@ -213,17 +213,33 @@ CREATE TABLE IF NOT EXISTS admin_config (
 );`;
 
 export class D1Storage implements IStorage {
-  private db: D1Database;
+  /**
+   * 绑定的**惰性**持有（4.8.6）。
+   *
+   * 为什么不能在构造函数里取：`lib/db.ts` 顶层有 `export const db = new DbManager()`，
+   * 而 next build 的「Collecting page data」阶段会在**构建机**上加载这些模块 ——
+   * 那里根本没有 D1 绑定。构造函数里抛错会直接让构建失败：
+   *
+   *   Error: D1 绑定缺失…
+   *   Error: Failed to collect page data for /api/admin/category
+   *
+   * 原来的代码 `return process.env.DB` 拿到 undefined 也不抛，所以构建能过、
+   * 运行时才 500 —— 加了校验之后反而把构建搞挂了。
+   *
+   * 现在改成用到时才取：构建期安全，运行时缺绑定仍然会抛（带可操作提示）。
+   */
+  private lazyDb: D1Database | null = null;
+
+  private get db(): D1Database {
+    if (!this.lazyDb) this.lazyDb = getD1Database();
+    return this.lazyDb;
+  }
 
   /** 懒迁移去重标记（edge 实例级：每个请求最多跑一轮 ALTER） */
   private schemaReady: Promise<void> | null = null;
 
   /** 建表去重标记（4.8.4，同样是实例级） */
   private tablesReady: Promise<void> | null = null;
-
-  constructor() {
-    this.db = getD1Database();
-  }
 
   /**
    * 旧版 D1 表缺新列时自动补齐（4.3.2）。

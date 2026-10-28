@@ -11,6 +11,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.8.6",
+    date: "2026-10-28",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+    "绑定校验推迟到实际使用, 既保住构建又能给出明确的配置错误(而不是 undefined.prepare)"
+    ],
+    fixed: [
+    "修复 Cloudflare 构建失败: D1Storage 在构造时读取绑定, 而构建机没有绑定, Collecting page data 阶段直接中断",
+    "D1 绑定改为惰性获取: 构建期不触碰绑定, 首次查询时缺绑定才抛出可操作提示"
+    ]
+  },
+  {
     version: "4.8.5",
     date: "2026-10-28",
     added: [

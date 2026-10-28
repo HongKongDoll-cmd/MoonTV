@@ -57,17 +57,30 @@ describe('D1Storage 绑定校验', () => {
     __setD1DatabaseForTest(null);
   });
 
-  test('绑定缺失时抛出可操作的错误（而不是 undefined.prepare）', () => {
+  test('构造阶段**不**读取绑定（构建期没有绑定，读了会让构建失败）', () => {
     __setD1DatabaseForTest(null);
     // 必须 delete：赋 undefined 会被 Node 存成字符串 "undefined"，不是真的移除
     delete (process.env as Record<string, unknown>).DB;
-    expect(() => new D1Storage()).toThrow(/D1 绑定缺失/);
+
+    // next build 的 Collecting page data 会加载模块并 new D1Storage，
+    // 那一刻没有任何绑定；这里要是抛错，整个部署就挂在这一步
+    expect(() => new D1Storage()).not.toThrow();
   });
 
-  test('值形如字符串时不被误当成绑定（process.env 赋 undefined 的坑）', () => {
+  test('真正查询时才抛出可操作的错误（而不是 undefined.prepare）', async () => {
+    __setD1DatabaseForTest(null);
+    delete (process.env as Record<string, unknown>).DB;
+
+    const storage = new D1Storage();
+    await expect(storage.getAllFollowings('u')).rejects.toThrow(/D1 绑定缺失/);
+  });
+
+  test('值形如字符串时不被误当成绑定（process.env 赋 undefined 的坑）', async () => {
     __setD1DatabaseForTest(null);
     (process.env as Record<string, unknown>).DB = 'undefined';
-    expect(() => new D1Storage()).toThrow(/D1 绑定缺失/);
+
+    const storage = new D1Storage();
+    await expect(storage.getAllFollowings('u')).rejects.toThrow(/D1 绑定缺失/);
     delete (process.env as Record<string, unknown>).DB;
   });
 
