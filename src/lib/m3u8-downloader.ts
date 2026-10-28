@@ -8,6 +8,10 @@ import CryptoJS from 'crypto-js';
 
 import { inferHeightFromBitrate } from './hls-quality';
 import { StreamingTransmuxer, transmuxTSToMP4 } from './mp4-transmuxer';
+import {
+  fetchBufferWithProxyFallback,
+  fetchTextWithProxyFallback,
+} from './proxy-fallback';
 
 export type StreamSaverMode = 'disabled' | 'service-worker' | 'file-system';
 
@@ -235,8 +239,26 @@ export async function parseM3U8(
     throw new Error('M3U8 解析层级过深，可能存在循环引用');
   }
 
-  const response = await fetch(url);
-  let m3u8Str = await response.text();
+  /**
+   * 4.7.9：直连拿不到时走同源代理。
+   *
+   * 采集站的 m3u8 经常因为 Referer/UA 校验（403）或没给跨域头（CORS）
+   * 导致浏览器直连失败，而 `/api/m3u8?url=` 由服务端去取，两类都能绕过。
+   * 404/410 不兜底 —— 文件确实不存在，代理去也是白跑一趟。
+   */
+  let m3u8Str: string;
+  try {
+    const result = await fetchTextWithProxyFallback(url, {
+      onFallback: ({ reason }) => {
+        console.warn(`播放列表直连失败(${reason})，改用代理:`, url);
+      },
+    });
+    m3u8Str = result.value;
+  } catch (err) {
+    throw new Error(
+      err instanceof Error ? `获取 m3u8 失败: ${err.message}` : '获取 m3u8 失败'
+    );
+  }
 
   if (m3u8Str.substring(0, 7).toUpperCase() !== '#EXTM3U') {
     throw new Error('无效的 m3u8 链接');
@@ -319,11 +341,22 @@ export async function parseM3U8(
     task.aesConf.uri = uriMatch ? applyURL(uriMatch[1], url) : '';
     task.aesConf.iv = ivMatch ? ivMatch[1] : '';
 
-    // 获取 AES key
+    // 获取 AES key（4.7.9：同样支持代理兜底，key 被 Referer 挡掉的情况不少）
     if (task.aesConf.uri) {
-      const keyResponse = await fetch(task.aesConf.uri);
-      const keyArrayBuffer = await keyResponse.arrayBuffer();
-      task.aesConf.key = arrayBufferToWordArray(keyArrayBuffer);
+      try {
+        const result = await fetchBufferWithProxyFallback(task.aesConf.uri, {
+          onFallback: ({ reason }) => {
+            console.warn(`AES key 直连失败(${reason})，改用代理`);
+          },
+        });
+        task.aesConf.key = arrayBufferToWordArray(result.value);
+      } catch (err) {
+        throw new Error(
+          err instanceof Error
+            ? `获取 AES key 失败: ${err.message}`
+            : '获取 AES key 失败'
+        );
+      }
     }
   }
 
