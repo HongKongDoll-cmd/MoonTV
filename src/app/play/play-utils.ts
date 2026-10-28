@@ -68,7 +68,17 @@ export function filterAdsFromM3U8(m3u8Content: string): string {
    * 整段剔除并把 KEY/MAP/DISCONTINUITY 下沉给下一个保留分片。
    * `shortBlock`（短中插块启发式）默认关闭 —— 它容易误伤正片片头片尾。
    */
-  return filterAdSegments(m3u8Content).content;
+  const result = filterAdSegments(m3u8Content);
+  if (result.removedSegments > 0) {
+    // 可观测性：误判会表现为「少了一段正片」，没有这行日志就无从排查
+    console.log(
+      `[去广告] 剔除 ${result.removedSegments} 个分片 / ${result.removedDuration.toFixed(
+        1
+      )}s`,
+      result.reasons
+    );
+  }
+  return result.content;
 }
 
 /**
