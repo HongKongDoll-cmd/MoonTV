@@ -35,18 +35,6 @@ interface D1Result<T = any> {
   meta?: any;
 }
 
-// 获取 D1 数据库绑定
-/**
- * 取出 D1 绑定。
- *
- * 4.8.4：原来的写法是 `return process.env.DB as D1Database`，绑定名不叫 `DB`
- * （或者压根没绑定）时拿到的是 `undefined`，之后 `this.db.prepare(...)` 抛的是
- * `Cannot read properties of undefined (reading 'prepare')` —— 这条信息对排查
- * 毫无帮助，只表现为一堆接口 500。
- *
- * 这里显式校验，把「绑定缺失」和「查询出错」区分开：
- * 前者是部署配置问题，后者才是数据库问题。
- */
 /**
  * 测试注入点。
  *
@@ -62,18 +50,39 @@ export function __setD1DatabaseForTest(db: D1Database | null): void {
 function getD1Database(): D1Database {
   if (injectedDatabase) return injectedDatabase;
 
+  /**
+   * 依次尝试几个已知的绑定来源。
+   *
+   * ⚠️ 4.8.5 修复：4.8.4 里加过 `typeof binding.prepare !== 'function'` 的校验，
+   * 把事情搞坏了 —— Cloudflare 注入到 `process.env.DB` 的绑定对象**不一定**
+   * 是普通对象（next-on-pages 可能用 Proxy / RPC 包装，方法取值不是普通函数），
+   * 于是「绑定明明配好了」也被判成缺失，接口直接 500。
+   *
+   * 教训：这里**只判断存不存在**。对象形态交给后续调用来暴露真实错误 ——
+   * 校验的目的是区分「没配置」和「查询出错」，不是猜对象长什么样。
+   */
+  const fromEnv =
+    typeof process !== 'undefined' && process.env
+      ? (process.env as { DB?: unknown }).DB
+      : undefined;
+  // 只认对象：`process.env.X = undefined` 在 Node 里会存成**字符串** "undefined"，
+  // 不加这层会把那串字符当成绑定返回，之后的报错就指向不到配置问题
+  if (fromEnv && typeof fromEnv === 'object') return fromEnv as D1Database;
+
+  // 部分运行时（Workers 的 env 透传）挂在 globalThis 上
+  const fromGlobal = (globalThis as { __env__?: { DB?: unknown } }).__env__?.DB;
+  if (fromGlobal && typeof fromGlobal === 'object') {
+    return fromGlobal as D1Database;
+  }
+
   if (typeof process === 'undefined' || !process.env) {
     throw new Error('D1 仅在 Cloudflare 运行时可用（当前无 process.env）');
   }
 
-  const binding = (process.env as { DB?: D1Database }).DB;
-  if (!binding || typeof binding.prepare !== 'function') {
-    throw new Error(
-      'D1 绑定缺失：请在 Cloudflare Pages/Workers 的 Settings → Bindings 中' +
-        '添加 D1 数据库绑定，变量名必须是 DB'
-    );
-  }
-  return binding;
+  throw new Error(
+    'D1 绑定缺失：请在 Cloudflare Pages/Workers 的 Settings → Bindings 中' +
+      '添加 D1 数据库绑定，变量名必须是 DB（当前未从 process.env.DB 或 __env__.DB 读到）'
+  );
 }
 
 /**

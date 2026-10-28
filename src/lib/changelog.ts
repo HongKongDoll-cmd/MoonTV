@@ -11,6 +11,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.8.5",
+    date: "2026-10-28",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+    "D1 绑定改为依次尝试 process.env.DB 与 __env__.DB, 且只判断存在性不做形态校验",
+    "新增构建门禁测试: 扫描全部 API 路由, 缺 edge runtime 时直接失败并列出文件"
+    ],
+    fixed: [
+    "修复 Cloudflare 部署失败: /api/intro 未声明 edge runtime, next-on-pages 构建直接中断",
+    "修复 D1 绑定已正确配置却被误报「绑定缺失」: 4.8.4 的校验对 Proxy 包装的绑定对象判断过严",
+    "修复 process.env 赋值 undefined 会变成字符串 \"undefined\" 从而被误当成绑定的问题"
+    ]
+  },
+  {
     version: "4.8.4",
     date: "2026-10-28",
     added: [

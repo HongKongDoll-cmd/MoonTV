@@ -7,6 +7,18 @@ import { getDetailFromApi } from '@/lib/downstream';
 import { memoizeAsync } from '@/lib/memoize-async';
 
 /**
+ * ⚠️ 必须声明 edge runtime（4.8.5 补）。
+ *
+ * Cloudflare 部署走 `@cloudflare/next-on-pages`，它要求**所有**动态路由
+ * 都跑在 Edge Runtime 上；漏掉的 route 会让整个构建失败并报
+ * 「The following routes were not configured to run with the Edge Runtime」。
+ *
+ * 本项目其余 48 个 route 都是 edge，新增路由时容易漏这一行 ——
+ * 表现是「部署失败」，但浏览器里只会看到接口 500，很容易误判成绑定/数据库问题。
+ */
+export const runtime = 'edge';
+
+/**
  * 剧情简介接口（4.8.1）。
  *
  * 为什么不在搜索结果里直接带：采集站的搜索接口经常把 `vod_content` 截断甚至留空，

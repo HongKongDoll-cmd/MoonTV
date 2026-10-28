@@ -59,8 +59,16 @@ describe('D1Storage 绑定校验', () => {
 
   test('绑定缺失时抛出可操作的错误（而不是 undefined.prepare）', () => {
     __setD1DatabaseForTest(null);
-    (process.env as Record<string, unknown>).DB = undefined;
+    // 必须 delete：赋 undefined 会被 Node 存成字符串 "undefined"，不是真的移除
+    delete (process.env as Record<string, unknown>).DB;
     expect(() => new D1Storage()).toThrow(/D1 绑定缺失/);
+  });
+
+  test('值形如字符串时不被误当成绑定（process.env 赋 undefined 的坑）', () => {
+    __setD1DatabaseForTest(null);
+    (process.env as Record<string, unknown>).DB = 'undefined';
+    expect(() => new D1Storage()).toThrow(/D1 绑定缺失/);
+    delete (process.env as Record<string, unknown>).DB;
   });
 
   test('注入的替身会被直接使用（不经环境变量）', () => {
