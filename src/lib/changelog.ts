@@ -11,6 +11,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.8.1",
+    date: "2026-10-28",
+    added: [
+    "视频卡片动作菜单新增剧情简介: 打开菜单时按需拉取完整简介, 带骨架屏与长内容滚动",
+    "新增统一异步缓存工具 memoizeAsync: 近似 LRU、并发去重、只缓存成功结果",
+    "新增 /api/intro 简介接口, 服务端缓存 200 条 / 30 分钟, 取不到时返回空而不报错"
+    ],
+    changed: [
+    "简介改为打开菜单时才请求, 一页几十张卡片不会一次性打几十个请求"
+    ],
+    fixed: [
+    "修复搜索结果简介常被采集站截断或留空、卡片上看不到完整内容的问题"
+    ]
+  },
+  {
     version: "4.8.0",
     date: "2026-10-28",
     added: [

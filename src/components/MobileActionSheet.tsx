@@ -26,6 +26,13 @@ interface MobileActionSheetProps {
   currentEpisode?: number;
   totalEpisodes?: number;
   origin?: 'vod' | 'live';
+  /**
+   * 剧情简介（4.8.1）。
+   *
+   * `loading` 时显示骨架屏；取到空串时显示「暂无简介」。
+   * 不传则整块不渲染 —— 直播等没有简介的场景不该多出一片留白。
+   */
+  intro?: { loading: boolean; text: string } | null;
 }
 
 const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
@@ -40,6 +47,7 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
   currentEpisode,
   totalEpisodes,
   origin = 'vod',
+  intro,
 }) => {
   const [isVisible, setIsVisible] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
@@ -238,6 +246,30 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
             <X size={20} className="text-gray-500 dark:text-gray-400" />
           </button>
         </div>
+
+        {/* 剧情简介：骨架屏 → 正文；内容长时可滚动，不撑破面板 */}
+        {intro && (
+          <div className="px-4 pt-3 pb-1 border-b border-gray-100 dark:border-gray-800">
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+              剧情简介
+            </p>
+            {intro.loading ? (
+              <div className="space-y-1.5" aria-hidden='true'>
+                <div className="h-3 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" />
+                <div className="h-3 rounded bg-gray-200 dark:bg-gray-700 animate-pulse w-11/12" />
+                <div className="h-3 rounded bg-gray-200 dark:bg-gray-700 animate-pulse w-2/3" />
+              </div>
+            ) : intro.text ? (
+              <p className="max-h-28 overflow-y-auto overscroll-contain text-sm leading-relaxed text-gray-600 dark:text-gray-300 whitespace-pre-wrap">
+                {intro.text}
+              </p>
+            ) : (
+              <p className="text-sm text-gray-400 dark:text-gray-500">
+                暂无简介
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="px-4 py-2">
           {actions.map((action, index) => (

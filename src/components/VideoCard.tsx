@@ -3,7 +3,7 @@
 import { ExternalLink, Heart, Link, PlayCircleIcon, Trash2 } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   deleteFavorite,
@@ -122,6 +122,49 @@ export default function VideoCard({
   const actualPoster = aggregateData?.first.poster ?? poster;
   const actualSource = aggregateData?.first.source ?? source;
   const actualId = aggregateData?.first.id ?? id;
+
+  /**
+   * 剧情简介（4.8.1）。
+   *
+   * 搜索结果里的 `desc` 经常被采集站截断或留空，完整简介只在详情接口里，
+   * 所以**打开菜单时才去取** —— 用户不看就不请求，一页几十张卡片也不会
+   * 一次性打几十个请求。服务端有 memoizeAsync 缓存，重复右键同一部片子
+   * 只回源一次。
+   */
+  const [intro, setIntro] = useState<{
+    loading: boolean;
+    text: string;
+  } | null>(null);
+  useEffect(() => {
+    if (!isActionOpen) return;
+    // 豆瓣条目没有可用的 source/id（要走搜索才能拿到简介），直接不给这块
+    if (!actualSource || !actualId) {
+      setIntro(null);
+      return;
+    }
+
+    let cancelled = false;
+    setIntro({ loading: true, text: '' });
+
+    fetch(
+      `/api/intro?source=${encodeURIComponent(
+        actualSource
+      )}&id=${encodeURIComponent(actualId)}`
+    )
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        setIntro({ loading: false, text: (data?.intro || '').trim() });
+      })
+      .catch(() => {
+        // 取不到就显示「暂无简介」，不能让菜单本身出错
+        if (!cancelled) setIntro({ loading: false, text: '' });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isActionOpen, actualSource, actualId]);
   const actualDoubanId = aggregateData?.mostFrequentDoubanId ?? douban_id;
   const actualEpisodes = aggregateData?.mostFrequentEpisodes ?? episodes;
   const actualYear = aggregateData?.first.year ?? year;
@@ -655,6 +698,7 @@ export default function VideoCard({
         sources={isAggregate && items ? items.map(i => i.source_name || '').filter(Boolean) : []}
         currentEpisode={currentEpisode}
         totalEpisodes={actualEpisodes || undefined}
+        intro={intro}
         origin="vod"
         actions={[
           {
