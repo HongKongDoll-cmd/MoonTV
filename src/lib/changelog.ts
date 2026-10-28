@@ -11,6 +11,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.7.5",
+    date: "2026-10-28",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+    "缓存写入改为串行: 下载仍按并发档位进行, 但写 Cache Storage 与元数据排在同一条队列上",
+    "每写入 16 个分片主动让出一次主线程, 给点击、拖动进度条、选集等交互插队的机会"
+    ],
+    fixed: [
+    "修复批量缓存期间拖进度条、点选集出现卡顿的问题(多个 worker 同时写库并长时间占用主线程)",
+    "修复多个预取任务同时写入互相拖慢、IndexedDB 事务反复开关的问题"
+    ]
+  },
+  {
     version: "4.7.4",
     date: "2026-10-28",
     added: [

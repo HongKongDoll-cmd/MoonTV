@@ -18,6 +18,11 @@ import {
 } from './prefetch-concurrency';
 import { fetchSegmentWithRetry } from './segment-retry';
 import {
+  createSerialQueue,
+  WRITE_YIELD_INTERVAL,
+  yieldToMainThread,
+} from './serial-queue';
+import {
   type CacheSettings,
   buildSegmentCacheKey,
   enforceQuota,
@@ -168,6 +173,17 @@ export class VideoPrefetcher {
   private resumeWaiters: Array<() => void> = [];
   private stats: PrefetchStats = { ...IDLE_STATS };
   private lastEmitAt = 0;
+
+  /**
+   * 缓存写入的串行队列（4.7.5）。
+   *
+   * 放在**实例级**而不是 run() 内：换集/换源时上一轮的 worker 可能还没写完，
+   * 新一轮又开始了。两条队列并行写 Cache Storage 与 IndexedDB 会互相拖慢，
+   * 实例级队列能让它们也排在同一行上。
+   */
+  private writeQueue = createSerialQueue();
+  /** 本轮已写入的分片数，用于每 16 个让出一次主线程 */
+  private writeCount = 0;
 
   /**
    * 幂等入口。同一集且窗口仍然够用时直接返回，因此可以放心地在
@@ -504,26 +520,41 @@ export class VideoPrefetcher {
           const buffer = result.buffer;
           const costMs = result.costMs;
 
-          const putResult = await putCachedSegmentResilient(
-            cacheKey,
-            buffer,
-            result.contentType,
-            settings
-          );
+          /**
+           * 4.7.5：**下载并发，写入串行**。
+           *
+           * 并发下载只是网络 I/O，彼此不冲突；但 `cache.put()` 与
+           * IndexedDB 的 `put()` 是共享资源 —— 多个 worker 同时写会让
+           * Cache Storage 内部排队、IndexedDB 反复开事务，反而更慢，
+           * 而且批量写入会长时间占住主线程，用户这时拖进度条就一顿一顿的。
+           *
+           * 把「写缓存 + 写元数据」整体放进串行队列：要么都成功、
+           * 要么都不留痕迹（不会出现有分片没元数据、统计与实占对不上的情况）。
+           */
+          const putResult = await this.writeQueue.run(async () => {
+            const r = await putCachedSegmentResilient(
+              cacheKey,
+              buffer,
+              result.contentType,
+              settings
+            );
+            if (r !== 'ok') return r;
+            await metaStore.put({
+              key: cacheKey,
+              episodeKey: options.episodeKey,
+              index: segmentIndex + 1,
+              bytes: buffer.byteLength,
+              costMs,
+              lastAccess: Date.now(),
+            });
+            return r;
+          });
+
           if (putResult === 'quota') {
             storageFull = true;
             return;
           }
           if (putResult !== 'ok') continue;
-
-          await metaStore.put({
-            key: cacheKey,
-            episodeKey: options.episodeKey,
-            index: segmentIndex + 1,
-            bytes: buffer.byteLength,
-            costMs,
-            lastAccess: Date.now(),
-          });
 
           cached += 1;
           bytes += buffer.byteLength;
@@ -534,6 +565,12 @@ export class VideoPrefetcher {
             bytes,
             coverTo: durationsUsable ? cumulative[maxCachedIndex] ?? 0 : 0,
           });
+
+          // 每写满 16 个分片让出一次主线程，给点击/滚动/播放插队的机会
+          this.writeCount += 1;
+          if (this.writeCount % WRITE_YIELD_INTERVAL === 0) {
+            await yieldToMainThread();
+          }
         } catch {
           // 单个片段失败（含 abort）不影响整轮，继续下一个
           if (signal.aborted) return;
