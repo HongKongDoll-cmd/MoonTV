@@ -4,6 +4,12 @@ import { useEffect, useRef, useState } from 'react';
 import Swal from 'sweetalert2';
 
 import { getAvailableApiSitesClient } from '@/lib/config.client';
+import {
+  loadSearchConcurrencySetting,
+  normalizeSearchConcurrencySetting,
+  saveSearchConcurrencySetting,
+  SEARCH_CONCURRENCY_CLIENT_MAX,
+} from '@/lib/search-concurrency-setting';
 import { getRequestTimeout } from '@/lib/utils';
 
 interface SourceSelectorProps {
@@ -24,6 +30,8 @@ export default function SourceSelector({
   const [availableSources, setAvailableSources] = useState<{ key: string; name: string }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [timeoutSeconds, setTimeoutSeconds] = useState<number>(30);
+  /** 同时查询的源数量；0 表示自动（由服务端决定） */
+  const [searchConcurrency, setSearchConcurrency] = useState<number>(0);
   const [enableSearchSuggestions, setEnableSearchSuggestions] = useState<boolean>(true);
   
   // 由父组件控制是否展开
@@ -80,6 +88,7 @@ export default function SourceSelector({
   const handleSaveSources = () => {
     localStorage.setItem('savedSources', JSON.stringify(selectedSources));
     localStorage.setItem('requestTimeout', timeoutSeconds.toString());
+    saveSearchConcurrencySetting(searchConcurrency);
     
     // 显示保存成功提示
     Swal.fire({
@@ -132,6 +141,9 @@ export default function SourceSelector({
           console.error('Failed to parse saved sources:', error);
         }
       }
+
+      // 加载保存的并发设置
+      setSearchConcurrency(loadSearchConcurrencySetting());
 
       // 加载保存的超时时间
       const timeout = getRequestTimeout();
@@ -256,6 +268,33 @@ export default function SourceSelector({
               <span className="text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">秒</span>
             </div>
             
+            {/*
+              同时查询的源数量。
+              0 = 自动：不传参数，由服务端按 环境变量 / 默认 6 决定。
+              上限 16 与服务端一致，避免选出服务端不认的值。
+            */}
+            <div className="flex items-center justify-center gap-2 bg-gray-100 dark:bg-gray-700 rounded px-2 py-1">
+              <label className="text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                并发:
+              </label>
+              <input
+                type="number"
+                min="0"
+                max={SEARCH_CONCURRENCY_CLIENT_MAX}
+                value={searchConcurrency}
+                onChange={(e) =>
+                  setSearchConcurrency(
+                    normalizeSearchConcurrencySetting(e.target.value)
+                  )
+                }
+                className="w-12 px-1 py-0.5 text-sm bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-green-400"
+                title="同时查询的源数量，0 为自动"
+              />
+              <span className="text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                {searchConcurrency > 0 ? '路' : '自动'}
+              </span>
+            </div>
+
             {/* 搜索建议开关 */}
             <div className="flex items-center justify-center gap-2 bg-gray-100 dark:bg-gray-700 rounded px-2 py-1">
               <label className="text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">

@@ -3,6 +3,10 @@
 import { NextRequest } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
+import {
+  mapWithConcurrency,
+  resolveSearchConcurrency,
+} from '@/lib/concurrency-pool';
 import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
 import { searchFromApiStream } from '@/lib/downstream';
 import { EMBY_SOURCE, EMBY_SOURCE_NAME } from '@/lib/emby';
@@ -152,6 +156,12 @@ export async function GET(request: NextRequest) {
   
   // 如果指定了搜索源，只使用选中的搜索源
   const selectedSourcesParam = searchParams.get('sources');
+  /**
+   * 前端可以传并发值上来（源选择器让用户自己调）。
+   * 这里**只是取原始值**，真正的校验在 resolveSearchConcurrency 里做 ——
+   * 服务端必须二次校验，传 0 会让一个源都不跑、传 999 等于没有上限。
+   */
+  const concurrencyParam = searchParams.get('concurrency');
   if (selectedSourcesParam) {
     const selectedSources = selectedSourcesParam.split(',');
     apiSites = apiSites.filter(site => selectedSources.includes(site.key));
@@ -200,7 +210,7 @@ export async function GET(request: NextRequest) {
   // 非流式：并发
   // -------------------------
   if (!enableStream) {
-    const tasks = apiSites.map(async (site) => {
+    const runSite = async (site: (typeof apiSites)[number]) => {
       const siteResults: any[] = [];
       let hasResults = false;
       try {
@@ -242,7 +252,7 @@ export async function GET(request: NextRequest) {
           failed: { name: site.name, key: site.key, error: errorMessage },
         };
       }
-    });
+    };
 
     // 用户显式挑过搜索源时只搜挑中的源（影库不在源列表里），否则并入影库结果
     const libraryTask: Promise<{ siteResults: any[]; failed: SearchFailure | null }> =
@@ -253,7 +263,16 @@ export async function GET(request: NextRequest) {
             failed: r.failed,
           }));
 
-    const results = await Promise.all([...tasks, libraryTask]);
+    // 并发池：按上限逐个放出，而不是十几路同时打满出口
+    const [siteResultList, libraryResult] = await Promise.all([
+      mapWithConcurrency(
+        apiSites,
+        runSite,
+        resolveSearchConcurrency(concurrencyParam)
+      ),
+      libraryTask,
+    ]);
+    const results = [...siteResultList, libraryResult];
     const aggregatedResults = results.flatMap((r) => r.siteResults);
     const failedSources = results
       .filter((r) => r.failed)
@@ -288,7 +307,7 @@ export async function GET(request: NextRequest) {
     const aggregatedResults: any[] = [];
     const failedSources: { name: string; key: string; error: string }[] = [];
 
-    const siteTasks: Promise<void>[] = apiSites.map(async (site) => {
+    const runSite = async (site: (typeof apiSites)[number]): Promise<void> => {
       try {
         const generator = searchFromApiStream(site, query, true, timeout);
         let hasResults = false;
@@ -337,7 +356,19 @@ export async function GET(request: NextRequest) {
         failedSources.push({ name: site.name, key: site.key, error: errorMessage });
         await safeWrite({ failedSources });
       }
-    });
+    };
+
+    /**
+     * 流式的并发池：任务跑完就补下一个。
+     *
+     * 注意这里**不能**用 `.map` 一次性启动 —— 那样等于没有并发控制，
+     * 十几个源同时出站会把家庭出口的上行打满，反而拖慢整体。
+     */
+    const sitePool: Promise<void> = mapWithConcurrency(
+      apiSites,
+      runSite,
+      resolveSearchConcurrency(concurrencyParam)
+    ).then(() => undefined);
 
     // 影库搜索作为一路并发（用户挑过源时不并入）
     const libraryTask: Promise<void> = selectedSourcesParam
@@ -358,7 +389,7 @@ export async function GET(request: NextRequest) {
         })();
 
     // 等所有 site 跑完
-    await Promise.allSettled([...siteTasks, libraryTask]);
+    await Promise.allSettled([sitePool, libraryTask]);
 
     if (failedSources.length > 0) {
       await safeWrite({ failedSources });

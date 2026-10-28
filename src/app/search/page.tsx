@@ -13,6 +13,10 @@ import {
   subscribeToDataUpdates,
 } from '@/lib/db.client';
 import { fetchDoubanRates } from '@/lib/douban.client';
+import {
+  loadSearchConcurrencySetting,
+  toSearchConcurrencyParam,
+} from '@/lib/search-concurrency-setting';
 import { SearchResult } from '@/lib/types';
 import { getRequestTimeout } from '@/lib/utils';
 
@@ -296,6 +300,12 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
       // 添加超时时间参数
       const timeoutSeconds = getRequestTimeout();
       params.set('timeout', timeoutSeconds.toString());
+
+      // 同时查询的源数量：0（自动）时不传参，交给服务端决定
+      const concurrency = toSearchConcurrencyParam(
+        loadSearchConcurrencySetting()
+      );
+      if (concurrency) params.set('concurrency', concurrency);
 
       const response = await fetch(`/api/search?${params.toString()}`, {
         signal: controller.signal,
