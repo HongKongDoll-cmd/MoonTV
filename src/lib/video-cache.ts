@@ -72,6 +72,13 @@ export interface CacheSettings {
    * （见 lib/prefetch-concurrency.ts 的门槛说明）。
    */
   concurrencyPreset: CacheConcurrencyPreset;
+  /**
+   * 换片时自动清理上一部影片的缓存（4.7.7）。
+   *
+   * 默认**关闭**：删缓存是不可逆操作，不该在用户没同意的情况下默认执行。
+   * 开启后只保留当前集与下一集的预热（下一集要提前缓存，清掉等于白下）。
+   */
+  autoClearOnVideoChange: boolean;
 }
 
 export const DEFAULT_CACHE_SETTINGS: CacheSettings = {
@@ -82,6 +89,7 @@ export const DEFAULT_CACHE_SETTINGS: CacheSettings = {
   maxTotalBytes: 3 * 1024 * 1024 * 1024,
   useProxy: true,
   concurrencyPreset: 'auto',
+  autoClearOnVideoChange: false,
 };
 
 function clampNumber(value: unknown, min: number, max: number): number | undefined {
@@ -113,6 +121,9 @@ export function normalizeCacheSettings(input: unknown): CacheSettings {
 
   if (typeof raw.enabled === 'boolean') settings.enabled = raw.enabled;
   if (typeof raw.useProxy === 'boolean') settings.useProxy = raw.useProxy;
+  if (typeof raw.autoClearOnVideoChange === 'boolean') {
+    settings.autoClearOnVideoChange = raw.autoClearOnVideoChange;
+  }
 
   // 并发档位：新字段优先；旧配置里若存过数字并发则就近映射
   if (isConcurrencyPreset(raw.concurrencyPreset)) {
@@ -720,4 +731,89 @@ export function describeEpisodeCacheKey(
     episodeIndex: Number(tail),
     isSeries: Number(tail) > 0,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* 换片清理（4.7.7）                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 影片标识（不含集数）。
+ *
+ * 缓存元数据里的 `episodeKey` 形如 `${source}:${id}:${episodeIndex}`，
+ * 换片清理需要按「影片」而不是「单集」聚合，所以要单独有个键。
+ */
+export function buildVideoCacheKey(source: string, id: string): string {
+  return `${source}:${id}`;
+}
+
+/**
+ * 拆出 episodeKey 里的影片部分与集数部分。
+ *
+ * 用**最后一个冒号**切分，而不是 `startsWith(videoKey + ':')`：
+ * 影片 id 本身可能带冒号（影库路径、带参数的条目 id 都见过），
+ * 前者的边界才是确定的。最后一个冒号后不是数字时返回 null ——
+ * 那种记录不该被当成「某部影片的一集」参与清理。
+ */
+export function splitEpisodeCacheKey(
+  episodeKey: string
+): { videoKey: string; episode: number } | null {
+  if (typeof episodeKey !== 'string') return null;
+  const at = episodeKey.lastIndexOf(':');
+  if (at <= 0 || at === episodeKey.length - 1) return null;
+
+  const episode = Number(episodeKey.slice(at + 1));
+  if (!Number.isInteger(episode) || episode < 0) return null;
+
+  return { videoKey: episodeKey.slice(0, at), episode };
+}
+
+/** 换片清理的结果 */
+export interface VideoCacheCleanResult {
+  /** 被清掉的集数 */
+  episodes: number;
+  /** 被清掉的片段数 */
+  segments: number;
+  /** 释放的字节数 */
+  bytes: number;
+}
+
+/**
+ * 清理某部影片的缓存，但保留指定的几集。
+ *
+ * 典型用法：换到另一部片子后，把上一部清干净，但**保留当前集与下一集的预热**
+ * —— 下一集要提前缓存，清掉等于白下；当前集清掉则会让正在播的内容
+ * 突然需要重新回源。
+ *
+ * @param videoKey 影片标识（{@link buildVideoCacheKey}）
+ * @param keepEpisodeKeys 要保留的完整 episodeKey 列表
+ */
+export async function deleteVideoCacheExcept(
+  videoKey: string,
+  keepEpisodeKeys: string[] = []
+): Promise<VideoCacheCleanResult> {
+  const result: VideoCacheCleanResult = { episodes: 0, segments: 0, bytes: 0 };
+  if (typeof videoKey !== 'string' || !videoKey) return result;
+
+  const keep = new Set(keepEpisodeKeys.filter(Boolean));
+  const stats = await getEpisodeCacheStats();
+
+  const victims = stats.filter((stat) => {
+    if (keep.has(stat.episodeKey)) return false;
+    const parsed = splitEpisodeCacheKey(stat.episodeKey);
+    return parsed?.videoKey === videoKey;
+  });
+
+  for (const victim of victims) {
+    try {
+      const removed = await deleteEpisodeCache(victim.episodeKey);
+      result.episodes += 1;
+      result.segments += removed;
+      result.bytes += victim.bytes;
+    } catch {
+      // 单集删除失败不影响其余集
+    }
+  }
+
+  return result;
 }

@@ -115,6 +115,7 @@ import {
 import { SearchResult } from '@/lib/types';
 import { getRequestTimeout, getVideoResolutionFromM3u8 } from '@/lib/utils';
 import {
+  deleteVideoCacheExcept,
   getSegmentProbe,
   loadCacheSettings,
   saveCacheSettings,
@@ -125,6 +126,7 @@ import {
   getVideoPrefetcher,
   PrefetchStats,
 } from '@/lib/video-prefetcher';
+import { trackVideoSwitch, videoKeyOfEpisode } from '@/lib/video-switch';
 
 import { triggerGlobalError } from '@/components/GlobalErrorIndicator';
 
@@ -235,6 +237,9 @@ const PLAY_HELP_SETTING_NAME = '操作说明';
 
 /** 「缓存并发档位」设置项的 name（4.7.4） */
 const CACHE_CONCURRENCY_SETTING_NAME = '并发档位';
+
+/** 「换片自动清理」设置项的 name（4.7.7） */
+const CACHE_AUTO_CLEAR_SETTING_NAME = '换片自动清理';
 
 /**
  * 快捷键子面板里「恢复默认键位」这一条的 value。
@@ -710,6 +715,37 @@ export function usePlayEngine() {
     videoTitle,
     videoYear,
   ]);
+
+  /**
+   * 换片自动清理（4.7.7）。
+   *
+   * 「换片」和「换集」是两件事：换集由预取器自己管窗口，换片才该把
+   * **上一部影片**的缓存收掉。判断走 sessionStorage 而不是组件内 ref ——
+   * 换片会整页重挂载，ref 一定丢，那样永远判不出来。
+   *
+   * 只清上一部，不动当前这部：当前集的缓存正在被播放和预取使用，
+   * 清掉会让正在播的内容突然要回源。开关默认关闭，删缓存毕竟不可逆。
+   */
+  useEffect(() => {
+    if (!currentSource || !currentId) return;
+
+    const videoKey = videoKeyOfEpisode(currentSource, currentId);
+    const { changed, previous } = trackVideoSwitch(videoKey);
+    if (!changed || !previous) return;
+    if (!loadCacheSettings().autoClearOnVideoChange) return;
+
+    void deleteVideoCacheExcept(previous).then((result) => {
+      if (result.episodes > 0) {
+        showPlayerNotice(
+          `已清理上一部影片的缓存（${result.episodes} 集 / ${(
+            result.bytes /
+            (1024 * 1024)
+          ).toFixed(0)}MB）`,
+          { key: 'cache-cleared', duration: 6000 }
+        );
+      }
+    });
+  }, [currentSource, currentId]);
 
   // 切集时清空"已试过的源"与"自动换源次数"：
   // 某个源只是这一集挂了，不代表下一集也挂，不该把惩罚带到下一集。
@@ -3389,6 +3425,31 @@ export function usePlayEngine() {
                     artPlayerRef.current?.currentTime || 0
                   );
                   return describeConcurrencyPreset(preset);
+                },
+              },
+              /**
+               * 换片自动清理（4.7.7）。
+               *
+               * 默认关闭：删缓存不可逆，不该在用户没同意时默认执行。
+               * 开启后换到另一部影片时会清掉**上一部**的缓存（不动当前这部，
+               * 它的分片正在被播放与预取使用）。
+               */
+              {
+                name: CACHE_AUTO_CLEAR_SETTING_NAME,
+                html: CACHE_AUTO_CLEAR_SETTING_NAME,
+                switch: loadCacheSettings().autoClearOnVideoChange,
+                tooltip: loadCacheSettings().autoClearOnVideoChange
+                  ? '换片时清理上一部'
+                  : '不自动清理',
+                onSwitch: function (item: any) {
+                  const enabled = !item.switch;
+                  saveCacheSettings({ autoClearOnVideoChange: enabled });
+                  showPlayerNotice(
+                    enabled
+                      ? '换片时将自动清理上一部影片的缓存'
+                      : '已关闭换片自动清理'
+                  );
+                  return enabled;
                 },
               },
               {
