@@ -216,3 +216,47 @@ describe('内联脚本同时处理自动隐藏', () => {
     window.localStorage.removeItem(SIDENAV_AUTOHIDE_KEY);
   });
 });
+
+
+describe('侧栏自身宽度变量必须与折叠态同步（4.8.3 回归）', () => {
+  it('折叠与展开都要同时更新两个变量', () => {
+    const root = document.createElement('html');
+
+    applySidenavCollapsed(true, root);
+    expect(root.style.getPropertyValue(SIDENAV_WIDTH_FULL_VAR)).toBe(
+      `${SIDENAV_WIDTH_COLLAPSED}px`
+    );
+    expect(root.style.getPropertyValue(SIDENAV_WIDTH_VAR)).toBe(
+      `${SIDENAV_WIDTH_COLLAPSED}px`
+    );
+
+    applySidenavCollapsed(false, root);
+    // 4.8.2 只更新了后者，侧栏宽度卡在 72px 却显示文字 → 文字被裁掉半截
+    expect(root.style.getPropertyValue(SIDENAV_WIDTH_FULL_VAR)).toBe(
+      `${SIDENAV_WIDTH_EXPANDED}px`
+    );
+    expect(root.style.getPropertyValue(SIDENAV_WIDTH_VAR)).toBe(
+      `${SIDENAV_WIDTH_EXPANDED}px`
+    );
+  });
+
+  it('隐藏再恢复后，侧栏宽度变量仍跟随折叠态', () => {
+    const root = document.createElement('html');
+    applySidenavCollapsed(true, root);
+
+    applySidenavHidden(true, root);
+    // 隐藏时内容区让位归零，但侧栏自身宽度保持不变
+    expect(root.style.getPropertyValue(SIDENAV_WIDTH_VAR)).toBe('0px');
+    expect(root.style.getPropertyValue(SIDENAV_WIDTH_FULL_VAR)).toBe(
+      `${SIDENAV_WIDTH_COLLAPSED}px`
+    );
+
+    applySidenavHidden(false, root);
+    expect(root.style.getPropertyValue(SIDENAV_WIDTH_VAR)).toBe(
+      `${SIDENAV_WIDTH_COLLAPSED}px`
+    );
+    expect(root.style.getPropertyValue(SIDENAV_WIDTH_FULL_VAR)).toBe(
+      `${SIDENAV_WIDTH_COLLAPSED}px`
+    );
+  });
+});

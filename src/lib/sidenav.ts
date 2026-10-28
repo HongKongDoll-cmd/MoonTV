@@ -117,10 +117,19 @@ export function applySidenavCollapsed(
   if (!target) return;
 
   target.setAttribute(SIDENAV_COLLAPSED_ATTR, collapsed ? 'true' : 'false');
-  target.style.setProperty(
-    SIDENAV_WIDTH_VAR,
-    `${sidenavWidth(collapsed)}px`
-  );
+
+  const width = `${sidenavWidth(collapsed)}px`;
+
+  /**
+   * 两个变量都要更新（4.8.3 修复）。
+   *
+   * `--moontv-sidenav-w-full` 决定侧栏**自身**宽度，`--moontv-sidenav-w`
+   * 决定内容区让位。4.8.2 引入前者时只让首屏内联脚本写过一次，
+   * 之后点折叠/展开只更新了后者 —— 结果侧栏宽度卡在首屏那个值上，
+   * 展开后仍是 72px 却开始显示文字，文字被裁掉半截。
+   */
+  target.style.setProperty(SIDENAV_WIDTH_FULL_VAR, width);
+  target.style.setProperty(SIDENAV_WIDTH_VAR, width);
 }
 
 /**
@@ -159,10 +168,11 @@ export function applySidenavHidden(
   // 恢复时按当前折叠状态给出正确宽度，不能一律写展开值
   const collapsed =
     target.getAttribute(SIDENAV_COLLAPSED_ATTR) === 'true';
-  target.style.setProperty(
-    SIDENAV_WIDTH_VAR,
-    hidden ? '0px' : `${sidenavWidth(collapsed)}px`
-  );
+  const width = `${sidenavWidth(collapsed)}px`;
+
+  // 侧栏自身宽度始终跟着折叠态走；只有内容区让位会在隐藏时归零
+  target.style.setProperty(SIDENAV_WIDTH_FULL_VAR, width);
+  target.style.setProperty(SIDENAV_WIDTH_VAR, hidden ? '0px' : width);
 }
 
 /**

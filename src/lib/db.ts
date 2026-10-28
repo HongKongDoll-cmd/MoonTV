@@ -14,6 +14,7 @@ import {
   TodayUpdatedRecord,
 } from './types';
 import { UpstashRedisStorage } from './upstash.db';
+import { createNoopStorage } from './noop-storage';
 
 // storage type 常量: 'localstorage' | 'redis' | 'kvrocks' | 'upstash' | 'd1'，默认 'localstorage'
 const STORAGE_TYPE =
@@ -38,7 +39,23 @@ function createStorage(): IStorage {
       return new D1Storage();
     case 'localstorage':
     default:
-      return null as unknown as IStorage;
+      /**
+       * 4.8.3：返回**空实现**而不是 null。
+       *
+       * 原来 `null as unknown as IStorage` 会让服务端每一次 db 调用都抛
+       * TypeError（reading 'getAllFollowings'），接口统一 500 ——
+       * 线上表现为「能搜能播，但追更/今日新更/订阅配置一直报 500」。
+       *
+       * localstorage 模式本来就是"数据只存在浏览器"，服务端没有存储是
+       * 正常状态，不该表现成故障。空实现让读返回空、写静默成功，
+       * 前端照常退回本地数据。
+       */
+      console.warn(
+        '[storage] 当前为 localstorage 模式（NEXT_PUBLIC_STORAGE_TYPE 未配置或为 localstorage）：' +
+          '服务端不持久化任何数据，追更/收藏/播放记录只保存在浏览器里。' +
+          '若希望多端同步，请配置 d1 / redis / kvrocks / upstash。'
+      );
+      return createNoopStorage();
   }
 }
 
