@@ -12,6 +12,7 @@ import {
   DanmakuFilterRule,
   loadDanmakuFilterConfig,
 } from '@/lib/danmaku-filter';
+import { filterAdSegments } from '@/lib/m3u8-ad-filter';
 import {
   buildSegmentCacheKey,
   readCachedSegment,
@@ -56,22 +57,18 @@ export function formatTime(seconds: number): string {
  * 去广告：过滤 M3U8 内容中的 #EXT-X-DISCONTINUITY 标记。
  */
 export function filterAdsFromM3U8(m3u8Content: string): string {
-  if (!m3u8Content) return '';
-
-  // 按行分割M3U8内容
-  const lines = m3u8Content.split('\n');
-  const filteredLines: string[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    // 只过滤#EXT-X-DISCONTINUITY标识
-    if (!line.includes('#EXT-X-DISCONTINUITY')) {
-      filteredLines.push(line);
-    }
-  }
-
-  return filteredLines.join('\n');
+  /**
+   * 4.7.1：改为**真正剔除广告分片**。
+   *
+   * 旧实现只删所有 `#EXT-X-DISCONTINUITY` 行：广告分片一条没少，
+   * 反而把「这里不连续」的语义抹掉了 —— 播放器以为前后连续、
+   * 实际却跳过了一段，容易音画不同步（上游称之为时间轴空洞）。
+   *
+   * 现在交给 lib/m3u8-ad-filter：按 SCTE-35 广告窗 + 广告特征 URL 判定，
+   * 整段剔除并把 KEY/MAP/DISCONTINUITY 下沉给下一个保留分片。
+   * `shortBlock`（短中插块启发式）默认关闭 —— 它容易误伤正片片头片尾。
+   */
+  return filterAdSegments(m3u8Content).content;
 }
 
 /**

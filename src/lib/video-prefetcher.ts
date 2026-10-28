@@ -10,6 +10,7 @@
  *   是两件事，不要混用。
  */
 
+import { filterAdSegments } from './m3u8-ad-filter';
 import { parseM3U8 } from './m3u8-downloader';
 import {
   type CacheSettings,
@@ -52,6 +53,13 @@ export interface PrefetchOptions {
   episodeKey: string;
   /** 覆盖 settings.horizonSeconds */
   horizonSeconds?: number;
+  /**
+   * 与播放器使用**同一套**去广告规则（4.7.1）。
+   *
+   * 必须和播放器的 blockAd 开关保持一致：两边分片序列不同的话，
+   * 预取会把广告分片也下下来白占缓存，或者反过来漏掉真正要播的分片。
+   */
+  blockAd?: boolean;
   /** 回看保护时长（秒），默认 30 */
   lookBehindSeconds?: number;
   /** 并发数，默认 3（上限 4）：并发太高会抢播放的带宽 */
@@ -320,9 +328,17 @@ export class VideoPrefetcher {
     let task: Awaited<ReturnType<typeof parseM3U8>>;
     try {
       // 档位透传给解析器：主播放列表有多个码率时只取与当前播放一致的那一档
-      task = await parseM3U8(options.m3u8Url, 0, {
-        height: options.preferredHeight ?? null,
-      });
+      task = await parseM3U8(
+        options.m3u8Url,
+        0,
+        {
+          height: options.preferredHeight ?? null,
+        },
+        // 与播放器同一套规则（filterAdSegments），保证分片序列一致
+        options.blockAd
+          ? (content: string) => filterAdSegments(content).content
+          : undefined
+      );
     } catch {
       this.controller = null; // 置空后下一次 ensure() 会重建队列重试
       this.emit(options, { state: 'error', message: '播放列表解析失败' }, true);

@@ -11,6 +11,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.7.1",
+    date: "2026-10-28",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+    "去广告改为真正剔除广告分片: 按 SCTE-35 广告窗与广告特征 URL 判定, 整段删除并保留 KEY/MAP/不连续标记",
+    "去广告开关改用新键 enable_blockad_v2 且默认关闭, 不沿用旧开关状态",
+    "视频预取与播放器共用同一套去广告规则, 两边分片序列保持一致"
+    ],
+    fixed: [
+    "修复旧去广告只删 #EXT-X-DISCONTINUITY 标记、广告分片仍在且破坏时间轴空洞的问题",
+    "修复去广告误判时把正片首尾短分片一起删掉的风险(短中插块识别默认关闭)"
+    ]
+  },
+  {
     version: "4.7.0",
     date: "2026-10-28",
     added: [

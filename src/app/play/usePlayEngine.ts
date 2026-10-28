@@ -420,13 +420,19 @@ export function usePlayEngine() {
   const downshiftNoticeRef = useRef<string | null>(null);
 
   const [isBlockAdChanged, setIsBlockAdChanged] = useState(false);
-  // 去广告开关（从 localStorage 继承，默认 true）
+  /**
+   * 去广告开关（4.7.1）。
+   *
+   * 改用了新键 `enable_blockad_v2`，且**默认关闭**：
+   * 新版过滤会真正删掉分片，规则一旦误判就会少一段正片，比留着广告更糟。
+   * 故意不继承旧键 `enable_blockad` —— 老用户当年开的是「只删不连续标记」
+   * 的旧行为，语义完全不同，不该自动沿用。
+   */
   const [blockAdEnabled, setBlockAdEnabled] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
-      const v = localStorage.getItem('enable_blockad');
-      if (v !== null) return v === 'true';
+      return localStorage.getItem('enable_blockad_v2') === 'true';
     }
-    return true;
+    return false;
   });
   const blockAdEnabledRef = useRef(blockAdEnabled);
   useEffect(() => {
@@ -2585,6 +2591,8 @@ export function usePlayEngine() {
           currentTime,
           episodeKey: `${currentSourceRef.current}:${currentIdRef.current}:${currentEpisodeIndexRef.current}`,
           preferredHeight: preferredHeightRef.current,
+          // 与播放器同一套去广告规则，否则预取的分片序列和实际播放的不一致
+          blockAd: blockAdEnabledRef.current,
           ...(horizonSeconds === undefined ? {} : { horizonSeconds }),
           onProgress: (stats) => {
             const probe = getSegmentProbe();
@@ -2648,6 +2656,8 @@ export function usePlayEngine() {
           preferredHeight: preferred,
           horizonSeconds: NEXT_EPISODE_HORIZON_SECONDS,
           useProxy: loadCacheSettings().useProxy,
+          // 预热也要用同一套规则，否则下一集缓存的全是「含广告」的分片
+          blockAd: blockAdEnabledRef.current,
         });
       };
 
@@ -3241,7 +3251,7 @@ export function usePlayEngine() {
             onClick() {
               const newVal = !blockAdEnabled;
               try {
-                localStorage.setItem('enable_blockad', String(newVal));
+                localStorage.setItem('enable_blockad_v2', String(newVal));
                 if (artPlayerRef.current) {
                   resumeTimeRef.current = artPlayerRef.current.currentTime;
                   if (

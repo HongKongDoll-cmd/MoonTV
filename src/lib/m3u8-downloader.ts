@@ -221,7 +221,14 @@ function extractSubPlaylistUrl(
 export async function parseM3U8(
   url: string,
   depth = 0,
-  preferred?: PreferredVariant
+  preferred?: PreferredVariant,
+  /**
+   * 媒体播放列表的文本变换（4.7.1）。
+   *
+   * 预取器用它套用与播放器**同一套**去广告规则，保证两边算出来的分片序列
+   * 一致；主播放列表不套用（它没有分片，只有各档子列表地址）。
+   */
+  transform?: (content: string) => string
 ): Promise<M3U8Task> {
   // 防止无限递归
   if (depth > 5) {
@@ -229,7 +236,7 @@ export async function parseM3U8(
   }
 
   const response = await fetch(url);
-  const m3u8Str = await response.text();
+  let m3u8Str = await response.text();
 
   if (m3u8Str.substring(0, 7).toUpperCase() !== '#EXTM3U') {
     throw new Error('无效的 m3u8 链接');
@@ -243,8 +250,13 @@ export async function parseM3U8(
       throw new Error('无法从主播放列表中提取子播放列表');
     }
 
-    // 递归解析子播放列表
-    return parseM3U8(subPlaylistUrl, depth + 1, preferred);
+    // 递归解析子播放列表（transform 要透传下去，媒体列表才用得上）
+    return parseM3U8(subPlaylistUrl, depth + 1, preferred, transform);
+  }
+
+  // 去广告等文本变换：只作用于媒体播放列表
+  if (transform) {
+    m3u8Str = transform(m3u8Str);
   }
 
   const task: M3U8Task = {
