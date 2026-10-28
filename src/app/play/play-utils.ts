@@ -611,3 +611,144 @@ export function shrinkBufferBudget(current: BufferBudget): BufferBudget {
     ),
   };
 }
+
+// ---------------------------------------------------------------------------
+// 缓冲预算按码率动态计算（4.7.6）
+// ---------------------------------------------------------------------------
+
+/**
+ * 目标前向缓冲时长（秒）。
+ *
+ * 取 120 秒的原因：这是 4.6.4 调过的值 —— 弱网抖动时 120 秒的缓冲足够撑过去，
+ * 再长对观感没有额外帮助，只会多占内存。
+ */
+export const BUFFER_TARGET_SECONDS = 120;
+
+/**
+ * 字节预算的安全系数。
+ *
+ * 码率只统计视频轨的 `BANDWIDTH` 声明值，而真实占用还包括音轨、分段容器
+ * 头部、以及 m3u8 声明与实际编码的偏差。留 25% 余量才能保证
+ * 「时长目标」先被满足，而不是先撞上字节上限。
+ */
+export const BUFFER_BYTES_SAFETY = 1.25;
+
+/** 字节预算下限：低于这个值连低码率也撑不满几分钟 */
+export const BUFFER_SIZE_MIN = 48 * 1000 * 1000; // 48MB
+
+/** 字节预算上限：再高移动端就危险了（iOS 对单页内存有硬限制） */
+export const BUFFER_SIZE_MAX = 600 * 1000 * 1000; // 600MB
+
+/** 码率未知时的兜底预算，与 4.6.4 手动调过的值保持一致 */
+export const BUFFER_FALLBACK: BufferBudget = {
+  maxBufferSize: 150 * 1000 * 1000, // 150MB
+  maxBufferLength: BUFFER_TARGET_SECONDS,
+  backBufferLength: 30,
+};
+
+/**
+ * 按当前档位码率计算缓冲预算。
+ *
+ * 为什么必须按码率算：固定的 150MB 对两种片子都不对 ——
+ * - 低码率（比如 800kbps 的老片）150MB 能装 25 分钟，远超 120 秒的目标，
+ *   白占内存，移动端还可能被系统回收标签页；
+ * - 高码率（15Mbps 以上）120 秒要 225MB，被 150MB 硬顶压住后
+ *   `maxBufferLength` 从来没真正达成过，网络一抖就转圈。
+ *
+ * 8Mbps × 120s × 1.25 正好等于 150MB —— 与 4.6.4 的人工取值吻合，
+ * 说明这个公式在常见码率上的量级是对的。
+ *
+ * @param bitrate 档位码率（bps）；`null`/非有限值/≤0 时返回兜底预算
+ */
+export function computeBufferBudget(
+  bitrate: number | null | undefined,
+  options: { targetSeconds?: number } = {}
+): BufferBudget {
+  const rawTarget = options.targetSeconds ?? BUFFER_TARGET_SECONDS;
+  const targetSeconds = Number.isFinite(rawTarget)
+    ? Math.min(300, Math.max(30, Math.round(rawTarget)))
+    : BUFFER_TARGET_SECONDS;
+
+  if (
+    typeof bitrate !== 'number' ||
+    !Number.isFinite(bitrate) ||
+    bitrate <= 0
+  ) {
+    // 码率未知：宁可给兜底值，也不要按一个猜的数字缩小缓冲
+    return { ...BUFFER_FALLBACK, maxBufferLength: targetSeconds };
+  }
+
+  const bytes = (bitrate * targetSeconds * BUFFER_BYTES_SAFETY) / 8;
+  const maxBufferSize = Math.min(
+    BUFFER_SIZE_MAX,
+    Math.max(BUFFER_SIZE_MIN, Math.round(bytes))
+  );
+
+  return {
+    maxBufferSize,
+    maxBufferLength: targetSeconds,
+    // 回看时长与码率无关，按目标时长的 1/4 给，最多 30 秒
+    backBufferLength: Math.min(30, Math.max(10, Math.round(targetSeconds / 4))),
+  };
+}
+
+/**
+ * 把动态算出的预算与「已因 bufferFull 降级过的预算」取更紧的那个。
+ *
+ * 必要性：4.7.0 在命中 `BUFFER_FULL_ERROR` 时会按 70% 收紧预算，
+ * 而换档/换源会重新计算动态预算 —— 如果不做这一步，换一次档就把
+ * 之前踩过的坑重新踩一遍（降级结果被"算回去"了）。
+ *
+ * @param base 按当前码率算出的预算
+ * @param shrunk 已降级的预算；`null` 表示还没降级过
+ */
+export function clampBudgetToFloor(
+  base: BufferBudget,
+  shrunk: BufferBudget | null | undefined
+): BufferBudget {
+  if (!shrunk) return base;
+  return {
+    maxBufferSize: Math.min(base.maxBufferSize, shrunk.maxBufferSize),
+    maxBufferLength: Math.min(base.maxBufferLength, shrunk.maxBufferLength),
+    backBufferLength: Math.min(base.backBufferLength, shrunk.backBufferLength),
+  };
+}
+
+/**
+ * 从 hls.js 的 level 对象里取码率。
+ *
+ * 两个来源都要看：`level.bitrate` 是 hls.js 解析后的值，
+ * `level.attrs.BANDWIDTH` 是 master playlist 里的原始声明。
+ * 有些源站只给其中一个。
+ */
+export function readLevelBitrate(level: unknown): number | null {
+  if (!level || typeof level !== 'object') return null;
+  const l = level as { bitrate?: unknown; attrs?: { BANDWIDTH?: unknown } };
+
+  if (typeof l.bitrate === 'number' && Number.isFinite(l.bitrate) && l.bitrate > 0) {
+    return l.bitrate;
+  }
+  const declared = l.attrs?.BANDWIDTH;
+  if (typeof declared === 'number' && Number.isFinite(declared) && declared > 0) {
+    return declared;
+  }
+  if (typeof declared === 'string') {
+    const parsed = Number(declared);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return null;
+}
+
+/** 把预算写回 hls 配置对象（就地修改，hls.js 会读同一份 config） */
+export function applyBufferBudget(
+  config: {
+    maxBufferSize: number;
+    maxBufferLength: number;
+    backBufferLength: number;
+  },
+  budget: BufferBudget
+): void {
+  config.maxBufferSize = budget.maxBufferSize;
+  config.maxBufferLength = budget.maxBufferLength;
+  config.backBufferLength = budget.backBufferLength;
+}

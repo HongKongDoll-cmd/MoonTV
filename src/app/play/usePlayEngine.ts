@@ -146,13 +146,17 @@ import {
 } from './lib/playerViewState';
 import { describeCacheSwitch, describeSkipConfig } from './lib/settingsLayout';
 import {
+  applyBufferBudget,
   applyDanmakuFilter,
   calculateSourceScore,
+  clampBudgetToFloor,
+  computeBufferBudget,
   createCustomHlsLoader,
   createDanmakuInitialConfig,
   DANMAKU_VISIBLE_RESTORE_DELAY_MS,
   formatTime,
   pickDanmakuSettings,
+  readLevelBitrate,
   saveDanmakuSettings,
   shrinkBufferBudget,
   SkipConfig,
@@ -454,6 +458,17 @@ export function usePlayEngine() {
   const lastSeekAtRef = useRef<number | null>(null);
   /** 最近一次手动切换画质的时间戳：换档要重新缓冲，同理不计入（4.7.3） */
   const lastLevelSwitchAtRef = useRef<number | null>(null);
+  /**
+   * 因「缓冲写满」收紧过的预算（4.7.6）。
+   *
+   * 换档时会按新档位码率重算预算，重算不能把这里的降级结果弹回去 ——
+   * 否则踩过的坑每换一次档就要重踩一遍（见 clampBudgetToFloor）。
+   */
+  const shrunkBudgetRef = useRef<{
+    maxBufferSize: number;
+    maxBufferLength: number;
+    backBufferLength: number;
+  } | null>(null);
 
   const [isBlockAdChanged, setIsBlockAdChanged] = useState(false);
   /**
@@ -2968,15 +2983,42 @@ export function usePlayEngine() {
               maxBufferLength: 120, // 前向缓冲目标 120s
               maxMaxBufferLength: 600, // 前向缓冲硬上限 600s
               backBufferLength: 30, // 仅保留 30s 已播放内容，避免内存占用
-              // 4.6.4：90MB → 150MB。原来的 90MB 对高码率视频是个隐性瓶颈：
-              // 8Mbps 的片子缓冲满 120s 需要约 120MB，被 90MB 硬顶压住后
-              // maxBufferLength(120s) 从来没真正达成过，缓冲始终填不满，
-              // 网络一抖就卡。150MB 足以让 120s 目标在 10Mbps 内都成立。
-              maxBufferSize: 150 * 1000 * 1000, // 约 150MB，超出后触发清理
+              // 这三项是**初始值**，不等于最终生效值（4.7.6）：
+              // MANIFEST_PARSED 与每次 LEVEL_SWITCHED 都会按当前档位码率
+              // 重算（见 applyBudgetForLevel）。留成 8Mbps 对应的这一组，
+              // 是为了让"码率还没解析出来"的头几秒也不至于太小。
+              // 沿革：4.6.4 曾把 90MB 提到 150MB（8Mbps × 120s ≈ 120MB，
+              // 90MB 顶住后 120s 目标从未达成）；4.7.6 起改为按码率算，
+              // 8Mbps 仍得 150MB，但低/高码率各自拿到合适的值。
+              maxBufferSize: 150 * 1000 * 1000,
 
               /* 自定义 loader：去广告 + 缓存优先 */
               loader: CustomHlsJsLoader,
             });
+
+            /**
+             * 按当前档位码率对齐缓冲预算（4.7.6）。
+             *
+             * 固定的 150MB 对两种片子都不对：低码率老片能装 25 分钟（白占内存），
+             * 高码率片 120s 要 225MB 被硬顶压住（缓冲永远填不满）。
+             * 档位变化、写满降级后都要重新对齐。
+             */
+            const applyBudgetForLevel = (levelIndex?: number) => {
+              const idx =
+                typeof levelIndex === 'number' && levelIndex >= 0
+                  ? levelIndex
+                  : typeof hls.currentLevel === 'number' &&
+                    hls.currentLevel >= 0
+                  ? hls.currentLevel
+                  : 0;
+              const bitrate = readLevelBitrate(hls.levels?.[idx]);
+              const budget = clampBudgetToFloor(
+                computeBufferBudget(bitrate),
+                shrunkBudgetRef.current
+              );
+              applyBufferBudget(hls.config, budget);
+              return budget;
+            };
 
             hls.loadSource(url);
             hls.attachMedia(video);
@@ -2998,10 +3040,14 @@ export function usePlayEngine() {
             // 否则换源后 ABR 会被上一个源的网络状况压着
             stallTimesRef.current = [];
             downshiftNoticeRef.current = null;
+            // 新实例 = 新的码率环境，之前的降级记录不再适用
+            shrunkBudgetRef.current = null;
 
             // 播放列表解析成功：建立画质档位，并确认链路可用
             hls.on(Hls.Events.MANIFEST_PARSED, function () {
               recovery.markHealthy();
+              // 此刻 hls.levels 才有内容，按首个档位的码率把预算对齐
+              applyBudgetForLevel();
               syncQualitySetting(hls);
             });
 
@@ -3009,6 +3055,8 @@ export function usePlayEngine() {
               Hls.Events.LEVEL_SWITCHED,
               function (_event: any, data: any) {
                 const level = hls.levels?.[data?.level];
+                // 码率变了，字节预算跟着变（还要与已降级的预算取更紧的那个）
+                applyBudgetForLevel(data?.level);
                 updateQualityTooltip(
                   hls.autoLevelEnabled
                     ? `自动${level ? ` · ${describeLevel(level)}` : ''}`
@@ -3051,9 +3099,10 @@ export function usePlayEngine() {
                   maxBufferLength: hls.config.maxBufferLength,
                   backBufferLength: hls.config.backBufferLength,
                 });
-                hls.config.maxBufferSize = next.maxBufferSize;
-                hls.config.maxBufferLength = next.maxBufferLength;
-                hls.config.backBufferLength = next.backBufferLength;
+                // 4.7.6：记下来。换档会按码率重算预算，重算时要用它取更紧的，
+                // 否则换个档就把这次降级"算回去"了。
+                shrunkBudgetRef.current = next;
+                applyBufferBudget(hls.config, next);
                 console.warn(
                   `缓冲写满，已收紧预算: ${(next.maxBufferSize / 1e6).toFixed(
                     0
