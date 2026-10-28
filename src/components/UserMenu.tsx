@@ -18,6 +18,12 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
+import {
+  applySidenavHidden,
+  normalizeSidenavAutohide,
+  SIDENAV_AUTOHIDE_EVENT,
+  SIDENAV_AUTOHIDE_KEY,
+} from '@/lib/sidenav';
 import { checkForUpdates, CURRENT_VERSION, UpdateStatus } from '@/lib/version';
 
 import { useNavigationLoading } from './NavigationLoadingProvider';
@@ -51,6 +57,14 @@ export const UserMenu: React.FC = () => {
   const [defaultAggregateSearch, setDefaultAggregateSearch] = useState(true);
   const [defaultStreamSearch, setDefaultStreamSearch] = useState(true);
   const [simpleMode, setSimpleMode] = useState(false);
+
+  /**
+   * 侧边栏自动隐藏（4.8.2）。
+   *
+   * 默认关闭：开启后每次都要去顶部热区唤出，会改变操作习惯，
+   * 属于用户主动选择的偏好。
+   */
+  const [sidenavAutohide, setSidenavAutohide] = useState(false);
   const [doubanProxyUrl, setDoubanProxyUrl] = useState('');
 
   const [doubanDataSource, setDoubanDataSource] = useState('direct');
@@ -1265,6 +1279,35 @@ export const UserMenu: React.FC = () => {
           {/* 分割线 */}
           <div className='border-t border-gray-200 dark:border-gray-700'></div>
 
+          {/* 侧边栏自动隐藏（4.8.2） */}
+          <div className='flex items-center justify-between'>
+            <div>
+              <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                导航栏自动隐藏
+              </h4>
+              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                开启后侧边栏默认收起，鼠标移到屏幕顶部即可唤出（桌面端）
+              </p>
+            </div>
+            <label className='flex items-center cursor-pointer'>
+              <div className='relative'>
+                <input
+                  type='checkbox'
+                  className='sr-only peer'
+                  checked={sidenavAutohide}
+                  onChange={(e) =>
+                    handleSidenavAutohideToggle(e.target.checked)
+                  }
+                />
+                <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
+                <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
+              </div>
+            </label>
+          </div>
+
+          {/* 分割线 */}
+          <div className='border-t border-gray-200 dark:border-gray-700'></div>
+
           {/* 主题配色（第二层主题） */}
           <ThemePaletteSelector />
         </div>
@@ -1278,6 +1321,45 @@ export const UserMenu: React.FC = () => {
       </div>
     </>
   );
+
+  // 读取侧边栏自动隐藏设置，并跟随其它标签页/组件的变化（4.8.2）
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const read = () =>
+      setSidenavAutohide(
+        normalizeSidenavAutohide(
+          window.localStorage.getItem(SIDENAV_AUTOHIDE_KEY)
+        )
+      );
+    read();
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === SIDENAV_AUTOHIDE_KEY) read();
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  /**
+   * 切换自动隐藏。
+   *
+   * 三件事缺一不可：
+   * 1. 写 localStorage —— 首屏内联脚本靠它决定"进来就收起"
+   * 2. 立即 applySidenavHidden —— 不必等 SideNav 的 effect 传播
+   * 3. 派发自定义事件 —— `storage` 事件不会在本页触发，
+   *    少了这一步会出现「点了开关没反应」
+   */
+  const handleSidenavAutohideToggle = (enabled: boolean) => {
+    setSidenavAutohide(enabled);
+    try {
+      window.localStorage.setItem(SIDENAV_AUTOHIDE_KEY, String(enabled));
+    } catch {
+      // 隐私模式写不进去：本次会话仍生效，只是记不住
+    }
+    applySidenavHidden(enabled);
+    window.dispatchEvent(new CustomEvent(SIDENAV_AUTOHIDE_EVENT));
+  };
 
   // 修改密码面板内容
   const changePasswordPanel = (

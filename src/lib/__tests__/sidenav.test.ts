@@ -9,12 +9,17 @@
 
 import {
   applySidenavCollapsed,
+  applySidenavHidden,
+  normalizeSidenavAutohide,
   normalizeSidenavCollapsed,
+  SIDENAV_AUTOHIDE_KEY,
   SIDENAV_COLLAPSED_ATTR,
   SIDENAV_COLLAPSED_KEY,
+  SIDENAV_HIDDEN_ATTR,
   SIDENAV_INLINE_SCRIPT,
   SIDENAV_WIDTH_COLLAPSED,
   SIDENAV_WIDTH_EXPANDED,
+  SIDENAV_WIDTH_FULL_VAR,
   SIDENAV_WIDTH_VAR,
   sidenavWidth,
 } from '../sidenav';
@@ -128,5 +133,86 @@ describe('SIDENAV_INLINE_SCRIPT', () => {
       attr: 'false',
       width: `${SIDENAV_WIDTH_EXPANDED}px`,
     });
+  });
+});
+
+
+describe('normalizeSidenavAutohide', () => {
+  it('显式真值写法视为开启', () => {
+    for (const truthy of ['true', 'TRUE', ' true ', '1', 'yes', 'on']) {
+      expect(normalizeSidenavAutohide(truthy)).toBe(true);
+    }
+  });
+
+  it('其余一律关闭（默认关闭是刻意的）', () => {
+    for (const falsy of ['false', '0', 'no', 'off', '', '  ', null, undefined]) {
+      expect(normalizeSidenavAutohide(falsy as string | null | undefined)).toBe(
+        false
+      );
+    }
+  });
+});
+
+describe('applySidenavHidden', () => {
+  it('隐藏时属性置 true 且内容区让位归零', () => {
+    const root = document.createElement('html');
+    applySidenavHidden(true, root);
+
+    expect(root.getAttribute(SIDENAV_HIDDEN_ATTR)).toBe('true');
+    expect(root.style.getPropertyValue(SIDENAV_WIDTH_VAR)).toBe('0px');
+  });
+
+  it('恢复时按**当前折叠状态**给出宽度，不能一律写展开值', () => {
+    const root = document.createElement('html');
+    root.setAttribute(SIDENAV_COLLAPSED_ATTR, 'true');
+    applySidenavHidden(true, root);
+    applySidenavHidden(false, root);
+
+    expect(root.getAttribute(SIDENAV_HIDDEN_ATTR)).toBe('false');
+    expect(root.style.getPropertyValue(SIDENAV_WIDTH_VAR)).toBe(
+      `${SIDENAV_WIDTH_COLLAPSED}px`
+    );
+  });
+
+  it('展开态恢复时用展开宽度', () => {
+    const root = document.createElement('html');
+    root.setAttribute(SIDENAV_COLLAPSED_ATTR, 'false');
+    applySidenavHidden(false, root);
+
+    expect(root.style.getPropertyValue(SIDENAV_WIDTH_VAR)).toBe(
+      `${SIDENAV_WIDTH_EXPANDED}px`
+    );
+  });
+
+  it('拿不到 DOM 时不抛错', () => {
+    expect(() => applySidenavHidden(true, null)).not.toThrow();
+  });
+});
+
+describe('内联脚本同时处理自动隐藏', () => {
+  it('脚本里引用了自动隐藏的键与属性（否则首屏会先展开再收起）', () => {
+    expect(SIDENAV_INLINE_SCRIPT).toContain(SIDENAV_AUTOHIDE_KEY);
+    expect(SIDENAV_INLINE_SCRIPT).toContain(SIDENAV_HIDDEN_ATTR);
+  });
+
+  it('脚本同时写侧栏自身宽度变量（隐藏时内容区让位但侧栏不变形）', () => {
+    expect(SIDENAV_INLINE_SCRIPT).toContain(SIDENAV_WIDTH_FULL_VAR);
+  });
+
+  it('隐藏开启时内容区宽度记为 0', () => {
+    // 执行脚本，模拟"自动隐藏已开启、未折叠"
+    window.localStorage.setItem(SIDENAV_AUTOHIDE_KEY, 'true');
+    window.localStorage.removeItem(SIDENAV_COLLAPSED_KEY);
+    // eslint-disable-next-line no-new-func
+    new Function(SIDENAV_INLINE_SCRIPT)();
+
+    const root = document.documentElement;
+    expect(root.getAttribute(SIDENAV_HIDDEN_ATTR)).toBe('true');
+    expect(root.style.getPropertyValue(SIDENAV_WIDTH_VAR)).toBe('0px');
+    expect(root.style.getPropertyValue(SIDENAV_WIDTH_FULL_VAR)).toBe(
+      `${SIDENAV_WIDTH_EXPANDED}px`
+    );
+
+    window.localStorage.removeItem(SIDENAV_AUTOHIDE_KEY);
   });
 });

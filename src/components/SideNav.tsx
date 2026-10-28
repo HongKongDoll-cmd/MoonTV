@@ -25,8 +25,16 @@ import { memo, useCallback, useEffect, useState } from 'react';
 
 import {
   applySidenavCollapsed,
+  applySidenavHidden,
+  normalizeSidenavAutohide,
+  SIDENAV_AUTOHIDE_DELAY_MS,
+  SIDENAV_AUTOHIDE_EVENT,
+  SIDENAV_AUTOHIDE_KEY,
   SIDENAV_COLLAPSED_ATTR,
   SIDENAV_COLLAPSED_KEY,
+  SIDENAV_TOP_HOT_ZONE_PX,
+  SIDENAV_WIDTH_EXPANDED,
+  SIDENAV_WIDTH_FULL_VAR,
 } from '@/lib/sidenav';
 import { useDownloadTaskCount } from '@/hooks/useDownloadTaskCount';
 
@@ -100,6 +108,8 @@ const SideNav = () => {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [simpleMode, setSimpleMode] = useState(false);
   const [isClient, setIsClient] = useState(false);
+  /** 自动隐藏开关（4.8.2）；默认关闭，需用户主动开启 */
+  const [autohide, setAutohide] = useState(false);
 
   // 当前路径高亮：侧边栏 4.2.9 起全局常驻，需要跟随路由变化标出所在位置。
   // 影视库子项按 /douban?type=xxx 的 type 参数逐项匹配。
@@ -125,6 +135,115 @@ const SideNav = () => {
       }
     }
   }, []);
+
+  /**
+   * 自动隐藏开关的读取与同步（4.8.2）。
+   *
+   * 除了挂载时读 localStorage，还要监听两件事：
+   * - `storage`：**其它标签页**改了设置（浏览器只在跨标签页时派发）
+   * - `sidenav-autohide-changed`：**当前页**用户菜单改了设置 ——
+   *   storage 事件不会在自己这一页触发，只靠它会出现「点了开关没反应」
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const read = () =>
+      setAutohide(
+        normalizeSidenavAutohide(
+          window.localStorage.getItem(SIDENAV_AUTOHIDE_KEY)
+        )
+      );
+    read();
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === SIDENAV_AUTOHIDE_KEY) read();
+    };
+    const onCustom = () => read();
+
+    window.addEventListener('storage', onStorage);
+    window.addEventListener(SIDENAV_AUTOHIDE_EVENT, onCustom);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener(SIDENAV_AUTOHIDE_EVENT, onCustom);
+    };
+  }, []);
+
+  /**
+   * 自动隐藏的指针交互（4.8.2）。
+   *
+   * 行为对齐系统任务栏：默认收起，指针进入屏幕**顶部热区**或侧栏区域时滑出，
+   * 离开后延迟收起（延迟是为了让"从顶部移到侧栏内部"这一段不闪）。
+   *
+   * 只对桌面生效：`md` 以下侧栏本来就不渲染（移动端走底部导航）。
+   * 卸载/关闭开关时一定要 `applySidenavHidden(false)` 复位 ——
+   * 否则下次进站点内容区会一直贴着左边、侧栏却看不见。
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const isDesktop = () => window.innerWidth >= 768;
+
+    if (!autohide || !isDesktop()) {
+      applySidenavHidden(false);
+      return;
+    }
+
+    // 开启即收起，符合"默认隐藏"的预期
+    applySidenavHidden(true);
+
+    let hideTimer: number | null = null;
+    const clearTimer = () => {
+      if (hideTimer !== null) {
+        window.clearTimeout(hideTimer);
+        hideTimer = null;
+      }
+    };
+    const show = () => {
+      clearTimer();
+      applySidenavHidden(false);
+    };
+    const scheduleHide = () => {
+      clearTimer();
+      hideTimer = window.setTimeout(() => {
+        hideTimer = null;
+        applySidenavHidden(true);
+      }, SIDENAV_AUTOHIDE_DELAY_MS);
+    };
+
+    const readFullWidth = () => {
+      const raw = getComputedStyle(document.documentElement).getPropertyValue(
+        SIDENAV_WIDTH_FULL_VAR
+      );
+      const parsed = parseFloat(raw);
+      return Number.isFinite(parsed) && parsed > 0
+        ? parsed
+        : SIDENAV_WIDTH_EXPANDED;
+    };
+
+    const onMove = (e: MouseEvent) => {
+      // 顶部热区 或 指针落在侧栏当前宽度内 → 展开
+      if (e.clientY <= SIDENAV_TOP_HOT_ZONE_PX || e.clientX <= readFullWidth()) {
+        show();
+      } else {
+        scheduleHide();
+      }
+    };
+
+    // 窗口尺寸变化后重新判断（比如从窄窗口拉宽）
+    const onResize = () => {
+      if (!isDesktop()) applySidenavHidden(false);
+    };
+
+    window.addEventListener('mousemove', onMove, { passive: true });
+    window.addEventListener('resize', onResize);
+
+    return () => {
+      clearTimer();
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('resize', onResize);
+      applySidenavHidden(false);
+    };
+  }, [autohide]);
 
   /**
    * 读当前**视觉上**是否折叠 —— 直接问 `<html>` 的属性，

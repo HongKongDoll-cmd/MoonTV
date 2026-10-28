@@ -324,8 +324,31 @@ div[data-media-provider] video {
 }
 
 .moontv-sidenav {
-  width: var(--moontv-sidenav-w);
-  transition: width 0.2s ease;
+  /* 4.8.2：自身宽度用独立变量。
+     自动隐藏时内容区要让位（--moontv-sidenav-w → 0），但侧栏本身得保持原宽度
+     才能平滑平移出去 —— 宽度与位移同时变会先被压扁再滑走。 */
+  width: var(--moontv-sidenav-w-full, var(--moontv-sidenav-w));
+  transition:
+    width 0.2s ease,
+    transform 0.2s ease;
+}
+
+/* 自动隐藏态：整体滑出屏幕左侧，不再响应点击与悬停。
+   `pointer-events: none` 很关键 —— 否则滑出去之后那块区域仍然挡着内容区的点击。 */
+html[data-sidenav-hidden='true'] .moontv-sidenav {
+  transform: translateX(-100%);
+  pointer-events: none;
+}
+
+/* 顶部热区：开启自动隐藏后，鼠标进入屏幕顶部这一条就唤出侧栏。
+   只在开启态渲染（组件按需挂载），这里只管样式。 */
+.moontv-sidenav-hotzone {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  z-index: 60;
 }
 
 /* 首页内容区给侧边栏让位：具体内边距写在 page.tsx 的 class 里
