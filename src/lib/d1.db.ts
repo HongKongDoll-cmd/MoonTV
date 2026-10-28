@@ -36,23 +36,181 @@ interface D1Result<T = any> {
 }
 
 // 获取 D1 数据库绑定
+/**
+ * 取出 D1 绑定。
+ *
+ * 4.8.4：原来的写法是 `return process.env.DB as D1Database`，绑定名不叫 `DB`
+ * （或者压根没绑定）时拿到的是 `undefined`，之后 `this.db.prepare(...)` 抛的是
+ * `Cannot read properties of undefined (reading 'prepare')` —— 这条信息对排查
+ * 毫无帮助，只表现为一堆接口 500。
+ *
+ * 这里显式校验，把「绑定缺失」和「查询出错」区分开：
+ * 前者是部署配置问题，后者才是数据库问题。
+ */
+/**
+ * 测试注入点。
+ *
+ * `process.env` 只能存字符串，把假的 D1 对象塞进去会被转成 "[object Object]"，
+ * 所以单测必须走这个显式通道。
+ */
+let injectedDatabase: D1Database | null = null;
+
+export function __setD1DatabaseForTest(db: D1Database | null): void {
+  injectedDatabase = db;
+}
+
 function getD1Database(): D1Database {
-  // 在 Cloudflare Pages 环境中，D1 数据库通过环境变量绑定
-  if (typeof process !== 'undefined' && process.env) {
-    return (process.env as any).DB as D1Database;
+  if (injectedDatabase) return injectedDatabase;
+
+  if (typeof process === 'undefined' || !process.env) {
+    throw new Error('D1 仅在 Cloudflare 运行时可用（当前无 process.env）');
   }
 
-  // 在浏览器环境中，D1 不可用
-  throw new Error(
-    'D1 database is only available in Cloudflare Pages environment'
-  );
+  const binding = (process.env as { DB?: D1Database }).DB;
+  if (!binding || typeof binding.prepare !== 'function') {
+    throw new Error(
+      'D1 绑定缺失：请在 Cloudflare Pages/Workers 的 Settings → Bindings 中' +
+        '添加 D1 数据库绑定，变量名必须是 DB'
+    );
+  }
+  return binding;
 }
+
+/**
+ * 建表 DDL（4.8.4）。
+ *
+ * 与仓库根目录的 `d1-init.sql` 保持一致，全部是 `CREATE TABLE IF NOT EXISTS`，
+ * 因此**可以反复执行**：表已存在时是空操作，不会动已有数据。
+ *
+ * 为什么放进代码而不是只靠手工执行 sql 文件：新部署最容易漏的一步就是
+ * 「忘了在 Cloudflare 控制台跑 d1-init.sql」，而漏掉的后果是一整排接口 500，
+ * 错误信息还只有 "no such table: followings"，很难联想到是建表问题。
+ */
+export const D1_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT UNIQUE NOT NULL,
+  password TEXT NOT NULL,
+  role TEXT DEFAULT 'user',
+  banned BOOLEAN DEFAULT false,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS play_records (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  source TEXT NOT NULL,
+  video_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  source_name TEXT NOT NULL,
+  year TEXT,
+  cover TEXT,
+  episode_index INTEGER,
+  total_episodes INTEGER,
+  play_time INTEGER,
+  total_time INTEGER,
+  save_time INTEGER,
+  search_title TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, source, video_id),
+  FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS favorites (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  source TEXT NOT NULL,
+  video_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  source_name TEXT NOT NULL,
+  year TEXT,
+  cover TEXT,
+  total_episodes INTEGER,
+  save_time INTEGER,
+  search_title TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, source, video_id),
+  FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS followings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  source TEXT NOT NULL,
+  video_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  source_name TEXT NOT NULL,
+  year TEXT,
+  cover TEXT,
+  total_episodes INTEGER,
+  watched_episodes INTEGER,
+  save_time INTEGER,
+  search_title TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, source, video_id),
+  FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS search_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  keyword TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, keyword),
+  FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS skip_configs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  source TEXT NOT NULL,
+  video_id TEXT NOT NULL,
+  enable BOOLEAN DEFAULT false,
+  intro_time INTEGER DEFAULT 0,
+  outro_time INTEGER DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, source, video_id),
+  FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS user_settings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  setting_key TEXT NOT NULL,
+  setting_value TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE(user_id, setting_key),
+  FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS today_updated (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL UNIQUE,
+  date TEXT NOT NULL,
+  data TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS admin_config (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  config TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);`;
 
 export class D1Storage implements IStorage {
   private db: D1Database;
 
   /** 懒迁移去重标记（edge 实例级：每个请求最多跑一轮 ALTER） */
   private schemaReady: Promise<void> | null = null;
+
+  /** 建表去重标记（4.8.4，同样是实例级） */
+  private tablesReady: Promise<void> | null = null;
 
   constructor() {
     this.db = getD1Database();
@@ -80,8 +238,30 @@ export class D1Storage implements IStorage {
     return this.schemaReady;
   }
 
+  /**
+   * 确保表结构存在（4.8.4）。
+   *
+   * 全部是 `CREATE TABLE IF NOT EXISTS`，纯幂等。**失败不在这里抛**：
+   * 表已存在（正常情况）、或账号没有 DDL 权限时都会走到 catch，
+   * 真正的错误交给后续查询暴露 —— 那样错误信息才指向实际问题，
+   * 而不是被一句「建表失败」盖住。
+   */
+  private ensureSchema(): Promise<void> {
+    if (!this.tablesReady) {
+      this.tablesReady = this.db
+        .exec(D1_SCHEMA_SQL)
+        .then(
+          () => undefined,
+          () => undefined
+        );
+    }
+    return this.tablesReady;
+  }
+
   // ---------- 用户相关 ----------
   private async getUserId(username: string): Promise<number | null> {
+    // 几乎所有读写都先经过这里，把建表挂在这一个点上覆盖面最大
+    await this.ensureSchema();
     const result = await this.db
       .prepare('SELECT id FROM users WHERE username = ?')
       .bind(username)
@@ -647,6 +827,7 @@ export class D1Storage implements IStorage {
 
   // ---------- 管理员配置 ----------
   async getAdminConfig(): Promise<AdminConfig | null> {
+    await this.ensureSchema();
     try {
       const result = await this.db
         .prepare('SELECT config FROM admin_config WHERE id = 1')

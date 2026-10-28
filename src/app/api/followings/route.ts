@@ -53,7 +53,17 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     console.error('获取追更失败', err);
     return NextResponse.json(
-      { error: 'Internal Server Error' },
+      {
+        error: 'Internal Server Error',
+        /**
+         * 4.8.4：把真实原因带回去。
+         *
+         * 这些接口都要求登录，暴露面可控；而只返回 "Internal Server Error"
+         * 时，用户在浏览器里看到的只是 500，必须去翻 Workers 日志才能知道
+         * 是「D1 绑定缺失」「表不存在」还是别的问题。
+         */
+        detail: err instanceof Error ? err.message : String(err),
+      },
       { status: 500 }
     );
   }
@@ -116,7 +126,10 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     console.error('保存追更失败', err);
     return NextResponse.json(
-      { error: 'Internal Server Error' },
+      {
+        error: 'Internal Server Error',
+        detail: err instanceof Error ? err.message : String(err),
+      },
       { status: 500 }
     );
   }
@@ -172,7 +185,10 @@ export async function DELETE(request: NextRequest) {
   } catch (err) {
     console.error('删除追更失败', err);
     return NextResponse.json(
-      { error: 'Internal Server Error' },
+      {
+        error: 'Internal Server Error',
+        detail: err instanceof Error ? err.message : String(err),
+      },
       { status: 500 }
     );
   }
