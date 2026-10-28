@@ -80,6 +80,13 @@ import { DEFAULT_VOLUME, loadVolume, saveVolume } from '@/lib/playback-volume';
 import { PLAYER_HOTKEY_ENABLED } from '@/lib/player-hotkeys';
 import { playerNotices, showPlayerNotice } from '@/lib/player-notices';
 import {
+  type CacheConcurrencyPreset,
+  CONCURRENCY_PRESET_OPTIONS,
+  describeConcurrencyPreset,
+  isConcurrencyPreset,
+  resolvePrefetchConcurrency,
+} from '@/lib/prefetch-concurrency';
+import {
   buildScreenshotFilename,
   sanitizeFilenamePart,
   saveScreenshot,
@@ -221,6 +228,9 @@ const DANMAKU_DENSITY_SETTING_NAME = '弹幕密度';
 
 /** 「操作说明」设置项的 name（4.7.2） */
 const PLAY_HELP_SETTING_NAME = '操作说明';
+
+/** 「缓存并发档位」设置项的 name（4.7.4） */
+const CACHE_CONCURRENCY_SETTING_NAME = '并发档位';
 
 /**
  * 快捷键子面板里「恢复默认键位」这一条的 value。
@@ -2628,6 +2638,8 @@ export function usePlayEngine() {
           preferredHeight: preferredHeightRef.current,
           // 与播放器同一套去广告规则，否则预取的分片序列和实际播放的不一致
           blockAd: blockAdEnabledRef.current,
+          // 并发档位（4.7.4）：auto 时按设备内存/核心数/网络类型判定
+          concurrency: resolvePrefetchConcurrency(loadCacheSettings()),
           ...(horizonSeconds === undefined ? {} : { horizonSeconds }),
           onProgress: (stats) => {
             const probe = getSegmentProbe();
@@ -2693,6 +2705,8 @@ export function usePlayEngine() {
           useProxy: loadCacheSettings().useProxy,
           // 预热也要用同一套规则，否则下一集缓存的全是「含广告」的分片
           blockAd: blockAdEnabledRef.current,
+          // 预热是后台行为但同样占带宽，档位必须和当前集保持一致
+          concurrency: resolvePrefetchConcurrency(loadCacheSettings()),
         });
       };
 
@@ -3290,6 +3304,42 @@ export function usePlayEngine() {
                     updateCacheTooltip('已关闭');
                   }
                   return enabled;
+                },
+              },
+              /**
+               * 并发档位（4.7.4）。
+               *
+               * 预取和播放抢同一条宽带：档位越高缓存追得越快，但播放器要的分片
+               * 也挤在同一条队列里。「自动」的门槛刻意偏高，让多数手机仍落在
+               * 低档，不把 4.6.4「并发降到 2」的优化又抵消掉。
+               */
+              {
+                name: CACHE_CONCURRENCY_SETTING_NAME,
+                html: CACHE_CONCURRENCY_SETTING_NAME,
+                tooltip: describeConcurrencyPreset(
+                  loadCacheSettings().concurrencyPreset
+                ),
+                selector: CONCURRENCY_PRESET_OPTIONS.map((opt) => ({
+                  html: opt.label,
+                  value: opt.value,
+                  tooltip: opt.hint,
+                  default:
+                    opt.value === loadCacheSettings().concurrencyPreset,
+                })),
+                onSelect: function (item: any) {
+                  const value = item?.value;
+                  if (!isConcurrencyPreset(value)) {
+                    return describeConcurrencyPreset(
+                      loadCacheSettings().concurrencyPreset
+                    );
+                  }
+                  const preset = value as CacheConcurrencyPreset;
+                  saveCacheSettings({ concurrencyPreset: preset });
+                  // 立刻按新档位重排队列；不然要等下一次切集才生效
+                  ensurePrefetchCurrent(
+                    artPlayerRef.current?.currentTime || 0
+                  );
+                  return describeConcurrencyPreset(preset);
                 },
               },
               {

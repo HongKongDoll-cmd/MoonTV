@@ -43,6 +43,12 @@ export interface SegmentMeta {
  */
 export const UNLIMITED_HORIZON_SECONDS = 0;
 
+import {
+  type CacheConcurrencyPreset,
+  isConcurrencyPreset,
+  presetFromLegacyConcurrency,
+} from './prefetch-concurrency';
+
 export interface CacheSettings {
   /** 总开关 */
   enabled: boolean;
@@ -58,6 +64,14 @@ export interface CacheSettings {
   maxTotalBytes: number;
   /** 是否走 /api/m3u8 同源代理（false 时直接缓存源站绝对 URL） */
   useProxy: boolean;
+  /**
+   * 预取并发档位（4.7.4）。
+   *
+   * `auto` 按设备内存/核心数与网络类型判定；其余为固定档位。
+   * 预取与播放抢同一条宽带，所以自动判定刻意偏保守
+   * （见 lib/prefetch-concurrency.ts 的门槛说明）。
+   */
+  concurrencyPreset: CacheConcurrencyPreset;
 }
 
 export const DEFAULT_CACHE_SETTINGS: CacheSettings = {
@@ -67,6 +81,7 @@ export const DEFAULT_CACHE_SETTINGS: CacheSettings = {
   maxBytesPerEpisode: 800 * 1024 * 1024,
   maxTotalBytes: 3 * 1024 * 1024 * 1024,
   useProxy: true,
+  concurrencyPreset: 'auto',
 };
 
 function clampNumber(value: unknown, min: number, max: number): number | undefined {
@@ -98,6 +113,14 @@ export function normalizeCacheSettings(input: unknown): CacheSettings {
 
   if (typeof raw.enabled === 'boolean') settings.enabled = raw.enabled;
   if (typeof raw.useProxy === 'boolean') settings.useProxy = raw.useProxy;
+
+  // 并发档位：新字段优先；旧配置里若存过数字并发则就近映射
+  if (isConcurrencyPreset(raw.concurrencyPreset)) {
+    settings.concurrencyPreset = raw.concurrencyPreset;
+  } else {
+    const migrated = presetFromLegacyConcurrency(raw.concurrency);
+    if (migrated) settings.concurrencyPreset = migrated;
+  }
 
   const horizon = clampNumber(raw.horizonSeconds, 0, 7200);
   if (horizon !== undefined) {

@@ -12,6 +12,10 @@
 
 import { filterAdSegments } from './m3u8-ad-filter';
 import { parseM3U8 } from './m3u8-downloader';
+import {
+  DEFAULT_CONCURRENCY,
+  MAX_CONCURRENCY,
+} from './prefetch-concurrency';
 import { fetchSegmentWithRetry } from './segment-retry';
 import {
   type CacheSettings,
@@ -312,7 +316,15 @@ export class VideoPrefetcher {
     // 预取是和**当前正在播放的分片请求**抢同一条家庭宽带的。3 条并发很容易
     // 把播放器的回源请求挤到排队，表现为「缓存里有数据却还是一卡一卡」。
     // 降到 2 条后缓存速度仍远快于播放消耗，但不至于掐住播放。
-    const concurrency = Math.max(1, Math.min(3, options.concurrency ?? 2));
+    /**
+     * 4.7.4：上限提到 8（high 档），实际值由调用方按档位传进来。
+     * 默认值仍是 2 —— 用户没配置过时不要擅自加大并发，
+     * 预取和播放抢同一条带宽这件事在 4.6.4 已经踩过一次。
+     */
+    const concurrency = Math.max(
+      1,
+      Math.min(MAX_CONCURRENCY, options.concurrency ?? DEFAULT_CONCURRENCY)
+    );
     const lookBehind = Math.max(0, options.lookBehindSeconds ?? 30);
 
     const horizonSeconds = options.horizonSeconds ?? settings.horizonSeconds;
